@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: digital_wallet
+  datasource:
+    # 資料庫連線網址
+    url: jdbc:postgresql://localhost:5433/digital_wallet?serverTimezone=UTC&useSSL=false
+    # 資料庫帳號
+    username: postgres
+    # 資料庫密碼
+    password: ${DB_PASSWORD:root}
+    # 驅動程式類別名稱
+    driver-class-name: org.postgresql.Driver
+
+mybatis:
+  # 設定 Mapper XML 檔案的存放路徑 (放在 resources/mapper/ 底下)
+  mapper-locations: classpath:mapper/*.xml
+  # 設定實體類別的套件路徑，讓 XML 中可以直接寫類別短名稱 (例如：User 代替 com.example.model.User)
+  type-aliases-package: com.digital_wallet.model
+  configuration:
+    # 自動將資料庫的底線欄位轉為 Java 的駝峰命名 (例如：user_id -> userId)
+    map-underscore-to-camel-case: true
+    # 開發時開啟日誌，在控制台印出執行的 SQL 與參數
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+jwt:
+  secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+  expiration: 86400000 # Token 有效期為 1 天 (單位：毫秒)

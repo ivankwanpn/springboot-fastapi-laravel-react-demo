@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.digital_wallet.mapper.WalletMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO wallets(user_id, currency, balance, version)
+        VALUES(#{userId}, #{currency}, #{balance}, #{version})
+    </insert>
+
+    <select id="findByUserId" resultType="Wallet">
+        SELECT * FROM wallets
+        WHERE user_id = #{userId}
+    </select>
+
+    <update id="deductBalanceWithVersion">
+        UPDATE wallets
+        SET balance = balance - #{amount},
+            version = version + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
+          AND version = #{version}
+    </update>
+
+    <update id="addBalance">
+        UPDATE wallets
+        SET balance = balance + #{amount},
+            version = version + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
+    </update>
+
+</mapper>
