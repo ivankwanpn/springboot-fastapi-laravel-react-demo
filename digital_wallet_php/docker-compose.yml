@@ -1,15 +1,16 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: digital_wallet_php_db
+    container_name: digital_wallet_php_old_db
     environment:
       POSTGRES_DB: digital_wallet
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: root
     ports:
-      - "5435:5432"
+      - "5436:5432"
     volumes:
-      - pgdata_php:/var/lib/postgresql/data
+      - pgdata_old_php:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d digital_wallet"]
       interval: 5s
@@ -18,12 +19,10 @@ services:
 
   app:
     build: .
-    container_name: digital_wallet_php_app
+    container_name: digital_wallet_php_old_app
     ports:
-      - "8001:8080"
+      - "8002:8080"
     environment:
-      APP_KEY: base64:9kQeF1MxP7vL3nR5tW8yZ2aB4cD6eF0gH2iJ4kL6mN=
-      DB_CONNECTION: pgsql
       DB_HOST: postgres
       DB_PORT: 5432
       DB_DATABASE: digital_wallet
@@ -36,4 +35,4 @@ services:
         condition: service_healthy
 
 volumes:
-  pgdata_php:
+  pgdata_old_php:

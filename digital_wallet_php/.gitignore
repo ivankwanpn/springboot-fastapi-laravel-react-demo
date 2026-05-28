@@ -1,8 +1,5 @@
 /vendor/
-/node_modules/
 .env
-.env.backup
-.phpunit.result.cache
-composer.lock
-storage/*
-!storage/app/.gitignore
+*.log
+.DS_Store
+Thumbs.db
