@@ -544,30 +544,151 @@ if (deducted == 0) {
 
 ---
 
-## 啟動方式
+## 部署與使用
+
+### 環境需求
+
+| 軟體 | 版本 | 用途 |
+|------|------|------|
+| JDK | 21+ | 編譯與運行 |
+| Maven | 3.9+ | 構建與依賴管理 |
+| Tomcat | 10+ | Servlet 容器（**必須，無內嵌伺服器**） |
+| PostgreSQL | 16 | 資料庫（本機 5433 port） |
+
+### 1. 確認 PostgreSQL
+
+本專案預設連線 `localhost:5433`，資料庫 `digital_wallet`：
 
 ```bash
-# 1. 編譯 + 打包 WAR
-mvn clean package
-
-# 2. 將 target/digital_wallet_springmvc.war 放到 Tomcat webapps/
-cp target/digital_wallet_springmvc.war $TOMCAT_HOME/webapps/
-
-# 3. 啟動 Tomcat
-$TOMCAT_HOME/bin/startup.sh       # Linux/Mac
-$TOMCAT_HOME/bin/startup.bat      # Windows
-
-# 4. 驗證
-curl -X POST http://localhost:8080/digital_wallet_springmvc/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"123456"}'
-
-# 或在 IntelliJ 中直接配置 Tomcat Run Configuration
+# 確認 PostgreSQL 正在運行
+psql -h localhost -p 5433 -U postgres -d digital_wallet -c "\dt"
 ```
 
-**注意：** 這個專案沒有內嵌伺服器（無 Spring Boot），必須部署到外部 Tomcat 10+ 才能運行。
+相關配置在：
+- [jdbc.properties](src/main/resources/jdbc.properties) — 資料庫連線
+- [jwt.properties](src/main/resources/jwt.properties) — JWT 密鑰
+
+### 2. 在 IntelliJ IDEA 中配置（推薦）
+
+這是最方便的方式，IntelliJ Ultimate 內建 Tomcat 整合：
+
+**步驟 A — 匯入專案**
+1. `File` → `Open` → 選擇 `digital_wallet_springmvc/` 目錄
+2. IntelliJ 會自動識別 Maven 專案，等待依賴下載完成
+
+**步驟 B — 配置 Tomcat**
+1. `Run` → `Edit Configurations` → `+` → `Tomcat Server` → `Local`
+2. `Application server`：點 `Configure`，選擇你的 Tomcat 安裝目錄（如 `C:\apache-tomcat-10.x`）
+3. `Deployment` tab → `+` → `Artifact` → 選 `digital_wallet_springmvc:war exploded`
+4. `Application context`：可設為 `/`（這樣 API 路徑會是 `/api/auth/...`）或留預設 `/digital_wallet_springmvc`
+5. `Server` tab → `HTTP port`：預設 `8080`，如有衝突可改
+6. 點 `OK` 儲存
+
+**步驟 C — 啟動**
+1. 點右上角綠色 Run 按鈕（或 `Shift+F10`）
+2. 等待 Tomcat 啟動，看到 `Server startup in XXXX ms` 即成功
+3. 瀏覽器打開 `http://localhost:8080/api/wallets`，應返回 401 JSON
+
+> 如果你用的是 **IntelliJ Community Edition**（無 Tomcat 整合），請改用下方的「手動部署」方式。
+
+### 3. 手動部署到 Tomcat（命令列）
+
+**步驟 A — 打包 WAR**
+
+```bash
+# 在專案根目錄執行
+mvn clean package
+
+# 成功後 WAR 在 target/digital_wallet_springmvc.war
+```
+
+**步驟 B — 部署**
+
+```bash
+# 複製 WAR 到 Tomcat 的 webapps 目錄
+cp target/digital_wallet_springmvc.war $TOMCAT_HOME/webapps/
+
+# 啟動 Tomcat
+$TOMCAT_HOME/bin/startup.sh       # Linux / macOS
+$TOMCAT_HOME/bin/startup.bat      # Windows
+```
+
+**步驟 C — 確認部署**
+
+Tomcat 啟動後，WAR 會自動解壓到 `webapps/digital_wallet_springmvc/`。API 根路徑為：
+
+```
+http://localhost:8080/digital_wallet_springmvc/api/
+```
+
+### 4. API 測試流程
+
+以下用 curl 示範完整流程。**如果 IntelliJ 把 context path 設為 `/`，直接把 URL 中的 `/digital_wallet_springmvc` 拿掉。**
+
+```bash
+# 設定 BASE URL（根據你的部署方式調整）
+BASE="http://localhost:8080/digital_wallet_springmvc"
+
+# --- 1. 註冊 alice ---
+curl -X POST "$BASE/api/auth/register" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"123456"}'
+# → 201 {"status":"SUCCESS","message":"User registered successfully"}
+
+# --- 2. 註冊 bob ---
+curl -X POST "$BASE/api/auth/register" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"bob","password":"123456"}'
+# → 201
+
+# --- 3. 登入 alice（取得 token）---
+TOKEN=$(curl -s -X POST "$BASE/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"123456"}' \
+  | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+
+echo "Token: $TOKEN"
+
+# --- 4. 查詢錢包 ---
+curl "$BASE/api/wallets" \
+  -H "Authorization: Bearer $TOKEN"
+# → 200 {"id":1,"userId":...,"currency":"USDT","balance":0.0000,"version":0,...}
+
+# --- 5. 轉帳給 bob（需先手動充值 alice）---
+curl -X POST "$BASE/api/transactions/transfer" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"toUsername":"bob","amount":"50.0000"}'
+# → 200 {"status":"SUCCESS","message":"Transfer completed successfully"}
+
+# --- 6. 查詢交易歷史 ---
+curl "$BASE/api/transactions" \
+  -H "Authorization: Bearer $TOKEN"
+# → 200 [{"id":1,"fromWalletId":...,"toWalletId":...,"amount":...,...}]
+```
+
+### 5. 前端對接
+
+修改 `digital_wallet_frontend/vite.config.ts` 的 proxy target：
+
+```ts
+// 如果 IntelliJ context path 設為 /
+proxy: { '/api': { target: 'http://localhost:8080', changeOrigin: true } }
+
+// 如果使用預設 context path
+proxy: { '/api': { target: 'http://localhost:8080/digital_wallet_springmvc', changeOrigin: true } }
+```
+
+然後啟動前端：
+
+```bash
+cd digital_wallet_frontend
+npm run dev
+```
 
 ---
+
+
 
 ## 五版本程式碼量對比
 
