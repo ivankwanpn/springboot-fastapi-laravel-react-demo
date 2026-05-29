@@ -1,26 +1,25 @@
 # Digital Wallet Backend — FastAPI 版 (Demo)
 
-> **技術驗證 / 抄作業項目**：用 Python FastAPI 生態複現 Spring Boot 版數位錢包的所有功能。**API 合約完全一致**，前端 `digital_wallet_frontend` 無需任何改動即可對接。每個檔案、每行程式碼都有解釋。
+> **技術驗證 / 抄作業項目**：用 Python FastAPI 生態複現數位錢包的所有功能。**API 合約與其他四個後端完全一致**，前端 `digital_wallet_frontend` 無需任何改動即可對接。
 
-## 與 Spring Boot 版對照
+## 五版本技術對照
 
-| 功能 | Spring Boot | FastAPI |
-|------|------------|---------|
-| 語言 | Java 21 | Python 3.12+ |
-| Web 框架 | Spring Boot 3.5 | FastAPI 0.115+ |
-| ORM / SQL | MyBatis (XML SQL) | SQLAlchemy 2.0 async |
-| DB 驅動 | PostgreSQL JDBC | asyncpg |
-| 密碼雜湊 | BCrypt (Spring Security) | passlib[bcrypt] |
-| JWT | jjwt 0.11.5 (HMAC-SHA256) | PyJWT 2.x (HS256) |
-| 序列化 | Jackson (自動) | Pydantic v2 (手動 alias) |
-| API 文檔 | SpringDoc OpenAPI | FastAPI 內建 Swagger (自動) |
-| 伺服器 | 內建 Tomcat | Uvicorn |
-| 依賴注入 | Spring DI | FastAPI Depends |
-| 事務管理 | `@Transactional` AOP | `async with session.begin()` |
-| 樂觀鎖 | MyBatis UPDATE + rowcount | SQLAlchemy UPDATE + rowcount |
-| 配置 | `@Value` + application.yaml | pydantic-settings + .env |
-| 全域異常 | `@RestControllerAdvice` | `@app.exception_handler` |
-| 容器化 | Docker + docker-compose | Docker + docker-compose |
+| 功能 | Spring Boot | Spring MVC | FastAPI | Laravel | 純 PHP |
+|------|------------|-----------|---------|---------|--------|
+| 語言 | Java 21 | Java 21 | Python 3.12+ | PHP 8.3+ | PHP 8.3+ |
+| Web 框架 | Spring Boot 3.5 | Spring MVC 6（無 Boot） | FastAPI 0.115+ | Laravel 11 | 無 |
+| 配置方式 | `application.yaml` | `web.xml` + XML | Pydantic Settings | `.env` | 無 |
+| ORM / DB | MyBatis (XML SQL) | MyBatis + 手動 SqlSessionFactory | SQLAlchemy 2.0 async | Eloquent | 原生 PDO |
+| DB 驅動 | JDBC PostgreSQL | JDBC PostgreSQL | asyncpg | PDO pgsql | PDO pgsql |
+| 密碼雜湊 | BCrypt | BCrypt | passlib[bcrypt] | `Hash::make()` | `password_hash()` |
+| JWT | jjwt 0.11.5 | jjwt 0.11.5 | PyJWT 2.x | firebase/php-jwt | firebase/php-jwt |
+| 序列化 | Jackson | Jackson | Pydantic v2 | 手動 array | 手動 array |
+| 伺服器 | 內建 Tomcat | 外部 Tomcat（WAR） | Uvicorn | PHP-FPM | `php -S` |
+| 依賴注入 | Spring DI | XML `<bean>` | FastAPI Depends | Laravel Container | 無 |
+| 事務管理 | `@Transactional` | `<tx:annotation-driven>` | `session.begin()` | `DB::transaction()` | 手動 |
+| 樂觀鎖 | MyBatis UPDATE + rowcount | MyBatis UPDATE + rowcount | SQLAlchemy UPDATE + rowcount | Eloquent `update()` | PDO + `rowCount()` |
+| 全域異常 | `@RestControllerAdvice` | `@RestControllerAdvice` | `@app.exception_handler` | `Exceptions::render()` | try/catch |
+| 打包 | Fat JAR | WAR | — | — | — |
 
 ## 技術清單
 
@@ -115,7 +114,7 @@ digital_wallet_fastapi/
 
 ---
 
-## API 端點（與 Spring Boot 版完全一致）
+## API 端點（五版本完全一致）
 
 | 方法 | 路徑 | JWT | 請求體 | 響應 | HTTP |
 |------|------|-----|--------|------|------|

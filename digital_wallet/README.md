@@ -1,6 +1,21 @@
 # Digital Wallet Backend (Demo)
 
-> **技術驗證 / 抄作業項目**：展示 Spring Boot 3 全棧後端開發的關鍵技術選型與實作模式。**每一個檔案**、**每一行程式碼**都有解釋，方便後續項目直接複用。
+> **技術驗證 / 抄作業項目**：展示 Spring Boot 3 全棧後端開發的關鍵技術選型與實作模式。**同一個 API 規格有五種後端實現**（Spring Boot / Spring MVC / FastAPI / Laravel / 純 PHP），API 合約完全一致，前端無需改動。
+
+## 五版本技術對照
+
+| 功能 | Spring Boot | Spring MVC | FastAPI | Laravel | 純 PHP |
+|------|------------|-----------|---------|---------|--------|
+| 語言 | Java 21 | Java 21 | Python 3.12+ | PHP 8.3+ | PHP 8.3+ |
+| Web 框架 | Spring Boot 3.5 | Spring MVC 6（無 Boot） | FastAPI 0.115+ | Laravel 11 | 無 |
+| 配置方式 | `application.yaml` | `web.xml` + XML | Pydantic Settings | `.env` | 無 |
+| ORM / DB | MyBatis XML | MyBatis + 手動 | SQLAlchemy async | Eloquent | 原生 PDO |
+| JWT | jjwt 0.11.5 | jjwt 0.11.5 | PyJWT 2.x | firebase/php-jwt | firebase/php-jwt |
+| 伺服器 | 內嵌 Tomcat | 外部 Tomcat（WAR） | Uvicorn | PHP-FPM | `php -S` |
+| 依賴注入 | Spring DI | XML `<bean>` | FastAPI Depends | Laravel Container | 無 |
+| 事務管理 | `@Transactional` | `<tx:annotation-driven>` | `session.begin()` | `DB::transaction()` | 手動 |
+| 樂觀鎖 | MyBatis UPDATE + rowcount | MyBatis UPDATE + rowcount | SQLAlchemy UPDATE + rowcount | Eloquent `update()` | PDO + `rowCount()` |
+| 打包 | Fat JAR | WAR | — | — | — |
 
 ## 技術清單
 

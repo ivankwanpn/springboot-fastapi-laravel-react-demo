@@ -1,26 +1,27 @@
 # Digital Wallet Backend — 純 PHP（無框架）版 (Demo)
 
-> **技術驗證 / 抄作業項目**：用零框架的純 PHP 複現數位錢包的所有功能，模擬許多公司仍在維護的老舊 PHP 專案風格。**API 合約與其他三個後端完全一致**，前端 `digital_wallet_frontend` 無需任何改動即可對接。
+> **技術驗證 / 抄作業項目**：用零框架的純 PHP 複現數位錢包的所有功能，模擬許多公司仍在維護的老舊 PHP 專案風格。**API 合約與其他四個後端完全一致**，前端 `digital_wallet_frontend` 無需任何改動即可對接。
 
-## 四版本技術對照
+## 五版本技術對照
 
-| 功能 | Spring Boot | FastAPI | Laravel | 純 PHP（無框架） |
-|------|------------|---------|---------|------------------|
-| 語言 | Java 21 | Python 3.12+ | PHP 8.3+ | PHP 8.3+ |
-| Web 框架 | Spring Boot 3.5 | FastAPI 0.115+ | Laravel 11 | **無**（手寫路由） |
-| ORM / DB | MyBatis (XML SQL) | SQLAlchemy 2.0 async | Eloquent | **原生 PDO** |
-| DB 驅動 | JDBC PostgreSQL | asyncpg | PDO pgsql | PDO pgsql |
-| 密碼雜湊 | BCrypt (Spring Security) | passlib[bcrypt] | `Hash::make()` | **原生 `password_hash()`** |
-| JWT | jjwt 0.11.5 | PyJWT 2.x | firebase/php-jwt | firebase/php-jwt |
-| 序列化 | Jackson (自動) | Pydantic v2 | 手動 array 組裝 | **手動 array 組裝** |
-| 伺服器 | 內建 Tomcat | Uvicorn | PHP-FPM / built-in | **PHP built-in (`php -S`)** |
-| 依賴注入 | Spring DI | FastAPI Depends | Laravel Container | **無**（直接 new） |
-| 事務管理 | `@Transactional` | `session.begin()` | `DB::transaction()` | **手動 `begin/commit/rollback`** |
-| 樂觀鎖 | MyBatis UPDATE + rowcount | SQLAlchemy UPDATE + rowcount | Eloquent `update()` + affected | **PDO UPDATE + `rowCount()`** |
-| 路由 | `@RequestMapping` | APIRouter | `routes/api.php` | **`match()` + `switch()`** |
-| 中介層 | `OncePerRequestFilter` | FastAPI Depends | Laravel Middleware | **靜態方法呼叫** |
-| 驗證 | `@Valid` | Pydantic | FormRequest | **內聯 `if` 檢查** |
-| 容器化 | Docker + docker-compose | Docker + docker-compose | Docker + docker-compose | Docker + docker-compose |
+| 功能 | Spring Boot | Spring MVC | FastAPI | Laravel | 純 PHP |
+|------|------------|-----------|---------|---------|--------|
+| 語言 | Java 21 | Java 21 | Python 3.12+ | PHP 8.3+ | PHP 8.3+ |
+| Web 框架 | Spring Boot 3.5 | **Spring MVC 6（無 Boot）** | FastAPI 0.115+ | Laravel 11 | **無** |
+| 配置方式 | `application.yaml` | **`web.xml` + XML** | Pydantic Settings | `.env` | 無 |
+| ORM / DB | MyBatis XML | **MyBatis + 手動 SqlSessionFactory** | SQLAlchemy async | Eloquent | 原生 PDO |
+| DB 驅動 | JDBC PostgreSQL | JDBC PostgreSQL | asyncpg | PDO pgsql | PDO pgsql |
+| 密碼雜湊 | BCrypt | BCrypt | passlib[bcrypt] | `Hash::make()` | `password_hash()` |
+| JWT | jjwt 0.11.5 | jjwt 0.11.5 | PyJWT 2.x | firebase/php-jwt | firebase/php-jwt |
+| 序列化 | Jackson | Jackson | Pydantic v2 | 手動 array | 手動 array |
+| 伺服器 | 內嵌 Tomcat | **外部 Tomcat（WAR）** | Uvicorn | PHP-FPM | `php -S` |
+| 依賴注入 | Spring DI | **XML `<bean>`** | FastAPI Depends | Laravel Container | 無 |
+| 事務管理 | `@Transactional` | **`<tx:annotation-driven>`** | `session.begin()` | `DB::transaction()` | 手動 |
+| 樂觀鎖 | MyBatis UPDATE + rowcount | MyBatis UPDATE + rowcount | SQLAlchemy UPDATE + rowcount | Eloquent `update()` + affected | PDO + `rowCount()` |
+| 路由 | `@RequestMapping` | `@RequestMapping` | APIRouter | `routes/api.php` | `match()` + `switch()` |
+| 中介層 | `OncePerRequestFilter` | `OncePerRequestFilter` | FastAPI Depends | Laravel Middleware | 靜態方法 |
+| 驗證 | `@Valid` | `@Valid` | Pydantic | FormRequest | 內聯 if |
+| 打包 | Fat JAR | **WAR** | — | — | — |
 
 ## 技術清單
 
@@ -117,7 +118,7 @@ digital_wallet_php_old/
 
 ---
 
-## API 端點（四版本完全一致）
+## API 端點（五版本完全一致）
 
 | 方法 | 路徑 | JWT | 請求體 | 響應 | HTTP |
 |------|------|-----|--------|------|------|
@@ -539,22 +540,20 @@ POST /api/transactions/transfer  { toUsername: "bob", amount: "50.0000" }
 
 ---
 
-## 四版本程式碼量對比
+## 五版本程式碼量對比
 
-| 關注點 | Java (行) | Python (行) | Laravel (行) | 純 PHP (行) |
-|------|------|------|------|------|
-| JWT + 安全 | ~60 | ~50 | ~45 | ~35 |
-| 密碼處理 | ~5 | ~4 | ~3 | ~3 |
-| 樂觀鎖 + 轉賬 | ~60 | ~40 | ~45 | ~80 |
-| 異常處理 | ~55 | ~35 | ~35 | ~30 |
-| API 路由 + Controller | ~40 | ~30 | ~45 | ~70 |
-| Model/DTO | ~120 | ~100 | ~50 | ~0 |
-| 請求解析 | ~0 (內建) | ~0 (內建) | ~0 (內建) | ~55 |
-| Docker | ~20 | ~17 | ~20 | ~14 |
-| 配置 | ~15 | ~10 | ~20 | ~15 |
-| **總計** | **~375** | **~286** | **~263** | **~302** |
+| 關注點 | Spring Boot | Spring MVC | FastAPI | Laravel | 純 PHP |
+|------|------------|-----------|---------|---------|--------|
+| JWT + 安全 | ~60 | ~65 | ~50 | ~45 | ~35 |
+| 密碼處理 | ~5 | ~5 | ~4 | ~3 | ~3 |
+| 樂觀鎖 + 轉賬 | ~60 | ~65 | ~40 | ~45 | ~80 |
+| 異常處理 | ~55 | ~45 | ~35 | ~35 | ~30 |
+| API 路由 + Controller | ~40 | ~55 | ~30 | ~45 | ~70 |
+| Model/DTO | ~120 | ~120 | ~100 | ~50 | ~0 |
+| 配置 | ~15 | ~120 | ~10 | ~20 | ~15 |
+| **總計** | **~375** | **~475** | **~286** | **~253** | **~302** |
 
-純 PHP 版的行數略多於 Laravel 版，主要在於手寫的請求解析（`Request.php`）和手動的事務管理（`begin/commit/rollback`）。但**沒有 ORM、沒有 DI 容器、沒有路由器、沒有模板引擎** — 沒有任何框架包袱。
+純 PHP 版行數略多於 Laravel，Spring MVC 版最長（XML 配置佔 ~120 行）。Spring Boot 的自動配置幫開發者省去了大量底層工作。
 
 ---
 

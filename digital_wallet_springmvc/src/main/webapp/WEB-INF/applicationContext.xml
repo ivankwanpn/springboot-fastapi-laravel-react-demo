@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:tx="http://www.springframework.org/schema/tx"
+       xsi:schemaLocation="
+           http://www.springframework.org/schema/beans
+           http://www.springframework.org/schema/beans/spring-beans.xsd
+           http://www.springframework.org/schema/context
+           http://www.springframework.org/schema/context/spring-context.xsd
+           http://www.springframework.org/schema/tx
+           http://www.springframework.org/schema/tx/spring-tx.xsd">
+
+    <!-- ========== Property Files ========== -->
+    <context:property-placeholder location="classpath:jdbc.properties" order="0"/>
+    <context:property-placeholder location="classpath:jwt.properties" order="1"/>
+
+    <!-- ========== DataSource (HikariCP) ========== -->
+    <bean id="dataSource" class="com.zaxxer.hikari.HikariDataSource" destroy-method="close">
+        <property name="driverClassName" value="${jdbc.driver}"/>
+        <property name="jdbcUrl" value="${jdbc.url}"/>
+        <property name="username" value="${jdbc.username}"/>
+        <property name="password" value="${jdbc.password}"/>
+        <property name="maximumPoolSize" value="10"/>
+        <property name="minimumIdle" value="2"/>
+    </bean>
+
+    <!-- ========== MyBatis ========== -->
+    <bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+        <property name="dataSource" ref="dataSource"/>
+        <property name="mapperLocations" value="classpath:mapper/*.xml"/>
+        <property name="configuration">
+            <bean class="org.apache.ibatis.session.Configuration">
+                <property name="mapUnderscoreToCamelCase" value="true"/>
+            </bean>
+        </property>
+    </bean>
+
+    <bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">
+        <property name="basePackage" value="com.digitalwallet.mapper"/>
+        <property name="sqlSessionFactoryBeanName" value="sqlSessionFactory"/>
+    </bean>
+
+    <!-- ========== Transaction Manager ========== -->
+    <bean id="transactionManager" class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <tx:annotation-driven transaction-manager="transactionManager"/>
+
+    <!-- ========== BCrypt ========== -->
+    <bean id="passwordEncoder" class="org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder"/>
+
+    <!-- ========== JWT Utility ========== -->
+    <bean id="jwtUtil" class="com.digitalwallet.util.JwtUtil">
+        <property name="secret" value="${jwt.secret}"/>
+        <property name="expiration" value="${jwt.expiration}"/>
+    </bean>
+
+    <!-- ========== Service Beans ========== -->
+    <bean id="authService" class="com.digitalwallet.service.AuthService">
+        <property name="userMapper" ref="userMapper"/>
+        <property name="walletMapper" ref="walletMapper"/>
+        <property name="passwordEncoder" ref="passwordEncoder"/>
+        <property name="jwtUtil" ref="jwtUtil"/>
+    </bean>
+
+    <bean id="walletService" class="com.digitalwallet.service.WalletService">
+        <property name="walletMapper" ref="walletMapper"/>
+    </bean>
+
+    <bean id="transactionService" class="com.digitalwallet.service.TransactionService">
+        <property name="userMapper" ref="userMapper"/>
+        <property name="walletMapper" ref="walletMapper"/>
+        <property name="transactionMapper" ref="transactionMapper"/>
+    </bean>
+
+</beans>

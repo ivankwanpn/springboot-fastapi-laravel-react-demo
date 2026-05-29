@@ -2,25 +2,26 @@
 
 > **技術驗證 / 抄作業項目**：用 PHP Laravel 11 生態複現數位錢包的所有功能。**API 合約與其他三個後端完全一致**，前端 `digital_wallet_frontend` 無需任何改動即可對接。
 
-## 四版本技術對照
+## 五版本技術對照
 
-| 功能 | Spring Boot | FastAPI | Laravel | 純 PHP（無框架） |
-|------|------------|---------|---------|------------------|
-| 語言 | Java 21 | Python 3.12+ | PHP 8.3+ | PHP 8.3+ |
-| Web 框架 | Spring Boot 3.5 | FastAPI 0.115+ | Laravel 11 | **無**（手寫路由） |
-| ORM / DB | MyBatis (XML SQL) | SQLAlchemy 2.0 async | Eloquent | **原生 PDO** |
-| DB 驅動 | JDBC PostgreSQL | asyncpg | PDO pgsql | PDO pgsql |
-| 密碼雜湊 | BCrypt (Spring Security) | passlib[bcrypt] | `Hash::make()` | **原生 `password_hash()`** |
-| JWT | jjwt 0.11.5 | PyJWT 2.x | firebase/php-jwt 6.x | firebase/php-jwt 6.x |
-| 序列化 | Jackson (自動) | Pydantic v2 | 手動 array 組裝 | **手動 array 組裝** |
-| 伺服器 | 內建 Tomcat | Uvicorn | PHP-FPM / built-in | **PHP built-in (`php -S`)** |
-| 依賴注入 | Spring DI | FastAPI Depends | Laravel Service Container | **無**（直接 new） |
-| 事務管理 | `@Transactional` | `session.begin()` | `DB::transaction()` | **手動 begin/commit/rollback** |
-| 樂觀鎖 | MyBatis UPDATE + rowcount | SQLAlchemy UPDATE + rowcount | Eloquent `update()` + affected | **PDO UPDATE + `rowCount()`** |
-| 全域異常 | `@RestControllerAdvice` | exception_handler | `Exceptions::render()` | **try/catch** |
-| 中介層 | `OncePerRequestFilter` | FastAPI Depends | Laravel Middleware | **靜態方法呼叫** |
-| 驗證 | `@Valid` | Pydantic | FormRequest | **內聯 if 檢查** |
-| 容器化 | Docker + docker-compose | Docker + docker-compose | Docker + docker-compose | Docker + docker-compose |
+| 功能 | Spring Boot | Spring MVC | FastAPI | Laravel | 純 PHP |
+|------|------------|-----------|---------|---------|--------|
+| 語言 | Java 21 | Java 21 | Python 3.12+ | PHP 8.3+ | PHP 8.3+ |
+| Web 框架 | Spring Boot 3.5 | **Spring MVC 6（無 Boot）** | FastAPI 0.115+ | Laravel 11 | **無** |
+| 配置方式 | `application.yaml` | **`web.xml` + XML** | Pydantic Settings | `.env` | 無 |
+| ORM / DB | MyBatis XML | **MyBatis + 手動 SqlSessionFactory** | SQLAlchemy async | Eloquent | 原生 PDO |
+| DB 驅動 | JDBC PostgreSQL | JDBC PostgreSQL | asyncpg | PDO pgsql | PDO pgsql |
+| 密碼雜湊 | BCrypt | BCrypt | passlib[bcrypt] | `Hash::make()` | `password_hash()` |
+| JWT | jjwt 0.11.5 | jjwt 0.11.5 | PyJWT 2.x | firebase/php-jwt | firebase/php-jwt |
+| 序列化 | Jackson | Jackson | Pydantic v2 | 手動 array | 手動 array |
+| 伺服器 | 內嵌 Tomcat | **外部 Tomcat（WAR）** | Uvicorn | PHP-FPM | `php -S` |
+| 依賴注入 | Spring DI | **XML `<bean>`** | FastAPI Depends | Laravel Container | 無 |
+| 事務管理 | `@Transactional` | **`<tx:annotation-driven>`** | `session.begin()` | `DB::transaction()` | 手動 |
+| 樂觀鎖 | MyBatis UPDATE + rowcount | MyBatis UPDATE + rowcount | SQLAlchemy UPDATE + rowcount | Eloquent `update()` + affected | PDO + `rowCount()` |
+| 全域異常 | `@RestControllerAdvice` | `@RestControllerAdvice` | exception_handler | `Exceptions::render()` | try/catch |
+| 中介層 | `OncePerRequestFilter` | `OncePerRequestFilter` | FastAPI Depends | Laravel Middleware | 靜態方法 |
+| 驗證 | `@Valid` | `@Valid` | Pydantic | FormRequest | 內聯 if |
+| 打包 | Fat JAR | **WAR** | — | — | — |
 
 ## 技術清單
 
@@ -143,7 +144,7 @@ digital_wallet_laravel/
 
 ---
 
-## API 端點（四版本完全一致）
+## API 端點（五版本完全一致）
 
 | 方法 | 路徑 | JWT | 請求體 | 響應 | HTTP |
 |------|------|-----|--------|------|------|
@@ -200,7 +201,7 @@ digital_wallet_laravel/
 **為什麼只用 `firebase/php-jwt` 而不是 `tymon/jwt-auth`：**
 - `tymon/jwt-auth` 是 Laravel 專用封裝，依賴 Laravel 內部 Auth Guard 機制
 - `firebase/php-jwt` 是獨立庫，API 與 PyJWT（Python 版）和 jjwt（Java 版）一致
-- 四版本保持對稱性更利於學習對比
+- 五版本保持對稱性更利於學習對比
 
 #### bootstrap/app.php — 全域配置
 
@@ -414,7 +415,7 @@ class JwtHelper
 
 **為什麼 `sub` 存字串：**
 - JWT RFC 7519 規定 `sub` 是字串類型
-- 四版本行為一致：Java `String.valueOf(userId)`、Python `str(user_id)`、PHP `(string) $userId`
+- 五版本行為一致：Java `String.valueOf(userId)`、Python `str(user_id)`、PHP `(string) $userId`
 
 #### JwtMiddleware.php（對應 JwtAuthenticationFilter / get_current_user_id）
 
@@ -466,7 +467,7 @@ class JwtMiddleware
 
 **為什麼 Token 驗證失敗也返回 "Invalid username or password"：**
 - 安全考量：不區分 Token 過期/無效/格式錯誤
-- 四版本行為一致
+- 五版本行為一致
 
 ---
 
@@ -526,11 +527,11 @@ class AuthService
 
 **為什麼 Login 不分開檢查 user 不存在和密碼錯誤：**
 - 攻擊者可透過不同錯誤訊息列舉有效用戶名
-- 四版本行為一致
+- 五版本行為一致
 
 **為什麼響應用 `createdAt` 而不是 `created_at`：**
 - 前端 TypeScript 型別定義用 camelCase
-- 四版本行為一致
+- 五版本行為一致
 
 **為什麼 `DB::transaction()` 而非手動 begin/commit/rollback：**
 - 對應 Java 的 `@Transactional` 和 Python 的 `async with session.begin()`
@@ -654,7 +655,7 @@ Route::middleware('jwt.auth')->group(function () {
 
 **為什麼 `$request->attributes->get('userId')` 而不是路徑參數：**
 - IDOR 防護：從 JWT 提取用戶身份，不信任 URL 參數
-- 四版本行為一致
+- 五版本行為一致
 
 **為什麼 `Route::middleware('jwt.auth')->group(...)`：**
 - `jwt.auth` 是 `bootstrap/app.php` 中定義的 middleware alias
@@ -768,18 +769,17 @@ php -S localhost:8001 -t public
 
 ---
 
-## 四版本程式碼量對比
+## 五版本程式碼量對比
 
-| 關注點 | Java (行) | Python (行) | Laravel (行) | 純 PHP (行) |
-|------|------|------|------|------|
-| JWT + 安全 | ~60 | ~50 | ~55 | ~45 |
-| 密碼處理 | ~5 | ~4 | ~3 | ~3 |
-| 樂觀鎖 + 轉賬 | ~60 | ~40 | ~45 | ~45 |
-| 異常處理 | ~55 | ~35 | ~35 | ~35 |
-| API 路由 + Controller | ~40 | ~30 | ~45 | ~45 |
-| Model/DTO | ~120 | ~100 | ~50 | ~50 |
-| 配置 | ~15 | ~10 | ~20 | ~20 |
-| Docker 部署 | ~20 | ~17 | — | ~20 |
-| **總計** | **~375** | **~286** | **~253** | **~263** |
+| 關注點 | Spring Boot | Spring MVC | FastAPI | Laravel | 純 PHP |
+|------|------------|-----------|---------|---------|--------|
+| JWT + 安全 | ~60 | ~65 | ~50 | ~55 | ~45 |
+| 密碼處理 | ~5 | ~5 | ~4 | ~3 | ~3 |
+| 樂觀鎖 + 轉賬 | ~60 | ~65 | ~40 | ~45 | ~45 |
+| 異常處理 | ~55 | ~45 | ~35 | ~35 | ~35 |
+| API 路由 + Controller | ~40 | ~55 | ~30 | ~45 | ~45 |
+| Model/DTO | ~120 | ~120 | ~100 | ~50 | ~50 |
+| 配置 | ~15 | ~120 | ~10 | ~20 | — |
+| **總計** | **~375** | **~475** | **~286** | **~253** | **~263** |
 
-Laravel 版最簡潔，主要因為 Eloquent Model 不需分離 Entity 和 DTO（用 `protected $fillable` 控制暴露欄位），且 `DB::transaction()` 比 Java AOP 和 Python context manager 更直觀。純 PHP 版以幾乎零依賴達到相同功能，適合理解框架背後的底層實作。
+Laravel 版最簡潔，Spring MVC 版最長（XML 配置佔 ~120 行）。Spring Boot 的自動配置幫開發者省去了大量底層工作。
