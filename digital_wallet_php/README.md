@@ -540,6 +540,53 @@ POST /api/transactions/transfer  { toUsername: "bob", amount: "50.0000" }
 
 ---
 
+## 資料庫表結構
+
+六版本完全相同的 PostgreSQL DDL：
+
+```sql
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'ROLE_USER',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE wallets (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL UNIQUE,
+    currency VARCHAR(10) NOT NULL DEFAULT 'USDT',
+    balance NUMERIC(18,4) NOT NULL DEFAULT 0.0000,
+    version INT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE transactions (
+    id BIGSERIAL PRIMARY KEY,
+    from_wallet_id BIGINT NULL,
+    to_wallet_id BIGINT NULL,
+    amount NUMERIC(18,4) NOT NULL,
+    tx_type VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'SUCCESS',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+## 常見錯誤
+
+| 錯誤 | 後果 | 正確做法 |
+|------|------|------|
+| `pg` 驅動 BIGINT 返回字串 | `===` 比較失效（self-transfer 繞過） | `parseInt()` 轉型後再比較 |
+| PDO 用 `ATTR_EMULATE_PREPARES=true` | 所有值變成字串，`rowCount()` 不準 | ALWAYS `ATTR_EMULATE_PREPARES => false` |
+| `password_hash()` 用 `PASSWORD_DEFAULT` 但忘記檢查 | 未來 PHP 升級可能換演算法，舊密碼無法驗證 | 固定 `PASSWORD_BCRYPT` 或在 users 表加 `algo` 欄位 |
+| `bccomp($amount, '0', 4)` 傳入科學記號 | ValueError crash → 500 | transferValidator 限制十進位格式 |
+
+---
+
 ## 六版本程式碼量對比
 
 | 關注點 | Spring Boot | Spring MVC | Node.js | FastAPI | Laravel | 純 PHP |

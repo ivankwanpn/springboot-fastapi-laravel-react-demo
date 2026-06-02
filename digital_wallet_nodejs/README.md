@@ -210,6 +210,298 @@ router.post('/transfer', auth, transferRules, validate, async (...) => {...});
 
 ---
 
+## 資料庫表結構
+
+與 Spring Boot 版**完全相同**，PostgreSQL DDL：
+
+```sql
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'ROLE_USER',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE wallets (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL UNIQUE,
+    currency VARCHAR(10) NOT NULL DEFAULT 'USDT',
+    balance NUMERIC(18,4) NOT NULL DEFAULT 0.0000,
+    version INT NOT NULL DEFAULT 0,           -- 樂觀鎖版本號
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE transactions (
+    id BIGSERIAL PRIMARY KEY,
+    from_wallet_id BIGINT NULL,
+    to_wallet_id BIGINT NULL,
+    amount NUMERIC(18,4) NOT NULL,
+    tx_type VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'SUCCESS',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_transactions_from ON transactions(from_wallet_id);
+CREATE INDEX idx_transactions_to ON transactions(to_wallet_id);
+```
+
+**樂觀鎖原理：** 每次扣款時帶 `WHERE version = ?`，如果 `rowCount === 0`（版本已被其他請求更新），則拒絕此次扣款並回傳 409。適合「讀多寫少」的錢包場景，不會死鎖。
+
+---
+
+## 核心實作模式（完整程式碼 + 解釋）
+
+### 1. 專案初始化（package.json + index.js）
+
+```json
+{
+  "dependencies": {
+    "express": "^5.2.1",
+    "pg": "^8.21.0",
+    "jsonwebtoken": "^9.0.3",
+    "bcrypt": "^6.0.0",
+    "express-validator": "^7.3.2",
+    "dotenv": "^17.4.2",
+    "cors": "^2.8.6"
+  }
+}
+```
+
+**為什麼不選 TypeScript：** 所有後端版本都用動態語言（Python/PHP/JS），保持一致的學習體驗。TypeScript 版本可以作為後續擴展。
+
+### 2. pg Pool（src/config/db.js）
+
+```javascript
+const { Pool } = require('pg');
+const pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '5433', 10),
+  database: process.env.DB_DATABASE || 'digital_wallet',
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || 'root',
+  max: 10,
+});
+module.exports = pool;
+```
+
+**為什麼 Pool 的 max=10：** Node.js 單執行緒事件迴圈，連線池不需要像 Java 執行緒池那麼大。`pg` Pool 內建 idle 回收，無需額外配置。
+
+### 3. 自訂錯誤類（src/utils/AppError.js）
+
+```javascript
+class AppError extends Error {
+  constructor(statusCode, message) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+```
+
+對應 Spring Boot `AppException(statusCode, message)`，FastAPI `AppException`，PHP `AppException`。
+
+### 4. JWT 工具（src/utils/jwt.js）
+
+```javascript
+function generateToken(userId, username) {
+  return jwt.sign({ sub: String(userId), username }, SECRET, {
+    algorithm: 'HS256', expiresIn: EXPIRATION / 1000,
+  });
+}
+
+function extractUserId(token) {
+  const payload = jwt.verify(token, SECRET, { algorithms: ['HS256'] });
+  return parseInt(payload.sub, 10);
+}
+```
+
+**為什麼 `algorithms: ['HS256']` 要寫死：** 防止 JWT `none` algorithm 攻擊 — 攻擊者可以偽造 `alg: "none"` 的 token 繞過驗證。`jsonwebtoken` 庫在 v9+ 預設拒絕 `none`，但顯式指定更安全。
+
+### 5. JWT 中介層（src/middleware/auth.js）
+
+```javascript
+function authMiddleware(req, res, next) {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith('Bearer ')) {
+    return next(new AppError(401, 'Invalid username or password'));
+  }
+  try {
+    req.userId = extractUserId(header.substring(7));
+    next();
+  } catch (err) {
+    next(new AppError(401, 'Invalid username or password'));
+  }
+}
+```
+
+對應 Spring Boot `OncePerRequestFilter`，FastAPI `Depends(get_current_user_id)`。
+
+### 6. Auth Service（src/services/authService.js）
+
+```javascript
+// register — 在同一個 transaction 中建立 user + wallet
+const client = await pool.connect();
+try {
+  await client.query('BEGIN');
+  const passwordHash = await bcrypt.hash(password, 12);
+  const result = await client.query(
+    'INSERT INTO users(username, password_hash, role) VALUES($1, $2, $3) RETURNING id',
+    [username, passwordHash, 'ROLE_USER']
+  );
+  await client.query(
+    'INSERT INTO wallets(user_id, currency, balance, version) VALUES($1, $2, $3, $4)',
+    [result.rows[0].id, 'USDT', '0', 0]
+  );
+  await client.query('COMMIT');
+} catch (err) {
+  await client.query('ROLLBACK');
+  if (err.code === '23505') throw new AppError(409, 'Username already taken');
+  throw err;
+} finally { client.release(); }
+```
+
+**為什麼 bcrypt 12 rounds：** bcrypt 的 cost factor 每 +1 計算時間翻倍。12 在安全和效能之間平衡。Spring Boot 和 Laravel 預設也是 10-12。
+
+**為什麼用 PostgreSQL error code `23505` 偵測重複：** 這是 PostgreSQL 的唯一約束違反碼，精確對應 `UNIQUE(username)`。
+
+### 7. Transaction Service — 樂觀鎖轉賬
+
+```javascript
+// 樂觀鎖扣款
+const deductResult = await client.query(
+  `UPDATE wallets SET balance = balance - $1, version = version + 1, updated_at = NOW()
+   WHERE user_id = $2 AND version = $3`,
+  [amount, fromUserId, fromWallet.version]
+);
+if (deductResult.rowCount === 0) {
+  throw new AppError(409, 'Concurrent modification detected');
+}
+```
+
+**樂觀鎖流程：**
+1. 讀取 wallet 時一起讀 `version`
+2. UPDATE 時帶 `WHERE version = ?`
+3. `rowCount === 0` → 其他請求先更新了 → 409
+
+---
+
+## 數據流圖
+
+```
+POST /api/auth/register
+  → authValidator (express-validator)
+  → AuthService.register() ← BEGIN/COMMIT/ROLLBACK
+    ├── bcrypt.hash(password, 12)
+    ├── INSERT INTO users (...)
+    │     └── error code 23505 → 409 DuplicateUsername
+    ├── INSERT INTO wallets (user_id, 0, 0)
+    └── COMMIT
+  → 201 { status: "SUCCESS", message: "User registered successfully" }
+
+POST /api/auth/login
+  → authValidator
+  → AuthService.login()
+    ├── SELECT * FROM users WHERE username = $1
+    │     └── null → 401
+    ├── bcrypt.compare(password, hash)
+    │     └── false → 401
+    ├── jwt.sign({ sub, username }, SECRET, HS256)
+    └── 200 { token, user: { id, username, role, createdAt } }
+
+GET /api/wallets
+  → authMiddleware → req.userId = 1
+  → WalletService.getByUserId(1)
+    ├── SELECT * FROM wallets WHERE user_id = $1
+    │     └── null → 404
+    ├── parseInt, parseFloat 轉型
+    └── 200 { id, userId, currency, balance, version, updatedAt }
+
+POST /api/transactions/transfer  { toUsername: "bob", amount: "50.0000" }
+  → authMiddleware → req.userId = 1
+  → transferValidator (express-validator)
+  → TransactionService.transfer(1, "bob", 50.0000) ← BEGIN/COMMIT/ROLLBACK
+    ├── parseFloat(amount) <= 0? → 400
+    ├── SELECT id FROM users WHERE username = 'bob'
+    │     └── null → 404
+    ├── userId === toUserId? → 400 self-transfer
+    ├── SELECT balance, version FROM wallets WHERE user_id = 1
+    │     └── null → 404
+    ├── balance < amount? → 400 InsufficientBalance
+    ├── UPDATE wallets SET balance - 50, version + 1 WHERE user_id=1 AND version=3
+    │     └── rowCount=0 → 409 ConcurrentModification
+    ├── UPDATE wallets SET balance + 50, version + 1 WHERE user_id=<toUserId>
+    ├── INSERT INTO transactions (...)
+    └── COMMIT
+  → 200 { status: "SUCCESS", message: "Transfer completed successfully" }
+
+GET /api/transactions
+  → authMiddleware → req.userId = 1
+  → TransactionService.getHistory(1)
+    ├── SELECT id FROM wallets WHERE user_id = 1
+    ├── SELECT * FROM transactions WHERE from_wallet_id=? OR to_wallet_id=? ORDER BY created_at DESC
+    └── 200 [{ id, fromWalletId, toWalletId, amount, txType, status, createdAt }]
+```
+
+---
+
+## 設計決策問答
+
+### 為什麼不用 Sequelize / Prisma 而是手寫 SQL？
+
+| | 手寫 SQL (`pg`) | ORM (Sequelize/Prisma) |
+|------|------|------|
+| SQL 控制 | 完全掌控，直接複製到 DB 執行 | 自動生成，難以優化 |
+| 學習成本 | 會 SQL 就能上手 | 需學 ORM 特定 API |
+| 與其他版本對照 | 直接對應 MyBatis XML / PDO SQL | 抽象層遮蔽實際 SQL |
+
+**選手寫 SQL：** 這個專案的目的是展示六種技術棧實現相同規格，手寫 SQL 讓學習者能直接對照各版本的 SQL 語句。
+
+### 為什麼用 async/await 而不是 callback？
+
+- async/await 讓非同步程式碼讀起來像同步，減少 callback hell
+- 與 Python FastAPI 的 `async/await` 直接對應
+- Node.js 8+ 原生支援，無需額外套件
+
+### 為什麼 pg 驅動的 BIGINT 返回字串？
+
+PostgreSQL 的 `BIGINT` 是 64-bit，JavaScript 的 `Number` 是 IEEE 754 雙精度（安全整數範圍 ±2^53）。`pg` 預設以字串返回避免精度丟失。在 wallet/transaction 場景中，ID 不會超過安全範圍，所以用 `parseInt()` 轉回 number。
+
+### 為什麼用 express-validator 中介層？
+
+- 驗證邏輯在 request 進入 controller 之前執行，符合 fail-fast 原則
+- 對應 Spring Boot 的 `@Valid` + Bean Validation 模式
+- 中介層是 Express 的核心設計模式，比在 service 層手寫 if 更清晰
+
+---
+
+## 安全紅線
+
+| ✅ 要做的 | ❌ 不要做的 |
+|------|------|
+| bcrypt 12 rounds 存密碼 | 明文或 MD5/SHA-256 存密碼 |
+| JWT algorithms 固定 HS256 | 允許 `none` algorithm |
+| SQL 用 `$1`/`$2` 參數化 | 字串拼接 SQL |
+| Bigint ID 用 `parseInt` 轉型 | 依賴 `==` 自動轉型（可能導致 self-transfer 繞過） |
+| 500 錯誤對外只顯示 "Internal server error" | 洩漏 stack trace 給 client |
+| 從 JWT 提取 userId | 從 URL 或 request body 取 userId |
+| 統一登入失敗訊息 | 區分「用戶不存在」vs「密碼錯誤」 |
+
+---
+
+## 常見錯誤
+
+| 錯誤 | 後果 | 正確做法 |
+|------|------|------|
+| `pool.query()` 用在 transaction 內 | 不同連線，無法 ROLLBACK | 用 `client.query()`（從 `pool.connect()` 取得） |
+| 忘記 `finally { client.release() }` | 連線洩漏，pool 耗盡 | always release in finally |
+| `req.userId === toUser.id` 比較字串和數字 | self-transfer 檢查失效 | `parseInt(toUser.id, 10)` 後再比較 |
+| `jsonwebtoken` 不指定 algorithms | 可能接受 `none` 演算法 token | `jwt.verify(token, secret, { algorithms: ['HS256'] })` |
+| 忘記 `cors()` | 前端無法跨域請求 | `app.use(cors())` |
+| express-validator 不檢查 `validationResult` | 無效資料進入 service | router 中加入 validate 中介層 |
+
+---
+
 ## 部署與使用
 
 ### 環境需求

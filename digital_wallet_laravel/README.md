@@ -769,6 +769,90 @@ php -S localhost:8001 -t public
 
 ---
 
+## 資料庫表結構
+
+六版本完全相同的 PostgreSQL DDL：
+
+```sql
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'ROLE_USER',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE wallets (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL UNIQUE,
+    currency VARCHAR(10) NOT NULL DEFAULT 'USDT',
+    balance NUMERIC(18,4) NOT NULL DEFAULT 0.0000,
+    version INT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE transactions (
+    id BIGSERIAL PRIMARY KEY,
+    from_wallet_id BIGINT NULL,
+    to_wallet_id BIGINT NULL,
+    amount NUMERIC(18,4) NOT NULL,
+    tx_type VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'SUCCESS',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+## 設計決策問答
+
+### 為什麼用 Eloquent 而不是原生 SQL？
+
+| | Eloquent | 原生 PDO |
+|------|------|------|
+| 程式碼量 | `User::where('username', $name)->first()` | 手寫 PDO prepared statement |
+| 型別安全 | `$casts` 自動轉型 | 手動 `(int)` / `(float)` |
+| 關聯查詢 | `$user->wallet` 自動載入 | 手動 JOIN |
+
+### 為什麼 `DB::raw()` 在 transaction 內是安全的？
+
+Eluqent 的 `DB::raw("balance - {$amount}")` 在 `DB::transaction()` 內執行。`$amount` 已被 FormRequest 驗證為十進位數值，無法注入 SQL。
+
+### 為什麼 `$timestamps = false`？
+
+Laravel 預設期望 `created_at` 和 `updated_at` 兩個欄位都存在。我們的 `users` 表只有 `created_at`，`wallets` 表只有 `updated_at`。設為 false 後手動管理，避免 Laravel 嘗試寫入不存在的欄位。
+
+### 為什麼不用 Laravel Sanctum / Passport？
+
+- `firebase/php-jwt` 是獨立庫，API 與 PyJWT 和 jjwt 一致，三版本對稱性更高
+- Laravel Sanctum 依賴 Laravel 內部 Auth Guard，不適合這個跨版本對照的專案
+
+---
+
+## 安全紅線
+
+| ✅ 要做的 | ❌ 不要做的 |
+|------|------|
+| `Hash::make()` (bcrypt) 存密碼 | 明文或 MD5/SHA-256 存密碼 |
+| JWT secret 放 `.env`，config 無 fallback | JWT secret 硬編碼 commit |
+| FormRequest 驗證所有輸入 | 信任前端傳來的值 |
+| 從 JWT `$request->attributes->get('userId')` 取得用戶 | 從 URL 參數取用戶 ID |
+| 統一登入失敗訊息 | 區分「用戶不存在」vs「密碼錯誤」 |
+
+---
+
+## 常見錯誤
+
+| 錯誤 | 後果 | 正確做法 |
+|------|------|------|
+| `config/jwt.php` 有 hardcoded secret fallback | 部署漏設 JWT_SECRET 時用預設值，可被偽造 | 移除 fallback，必填 |
+| `TransferRequest` 用 `numeric` 驗證 | 接受 `1e3` 格式，`bccomp()` 報錯 500 | 用 `regex` 限制十進位格式 |
+| `TransactionService` 用 `(float)` 轉 amount | 浮點精度問題 | 全程用字串 + `bccomp()` + prepared statement |
+| 忘記 `DB::transaction()` | 扣款成功但加款失敗，資料不一致 | transfer 必須包在 transaction 內 |
+
+---
+
 ## 六版本程式碼量對比
 
 | 關注點 | Spring Boot | Spring MVC | Node.js | FastAPI | Laravel | 純 PHP |
