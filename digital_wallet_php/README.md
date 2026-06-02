@@ -423,6 +423,70 @@ $authService = new AuthService();
 $authService->register($username, $password);
 ```
 
+### 8. JWT 生成與驗證（JwtHelper.php）
+
+```php
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
+
+class JwtHelper
+{
+    public static function generateToken(int $userId, string $username): string
+    {
+        $payload = [
+            'sub' => (string) $userId,
+            'username' => $username,
+            'iat' => time(),
+            'exp' => time() + Jwt::EXPIRATION / 1000,  // ms → 秒
+        ];
+        return JWT::encode($payload, Jwt::SECRET, 'HS256');
+    }
+
+    public static function decodeToken(string $token): object
+    {
+        return JWT::decode($token, new Key(Jwt::SECRET, 'HS256'));
+    }
+}
+```
+
+**為什麼 `sub` 存字串：**
+- JWT RFC 7519 規定 `sub` 是字串類型
+- 六版本行為一致：Java `String.valueOf(userId)`、Python `str(user_id)`、PHP `(string) $userId`
+
+### 9. 錢包查詢（WalletService.php）
+
+```php
+class WalletService
+{
+    public function getWalletByUserId(int $userId): array
+    {
+        $db = Database::getConnection();
+        $stmt = $db->prepare('SELECT * FROM wallets WHERE user_id = :user_id');
+        $stmt->execute([':user_id' => $userId]);
+        $wallet = $stmt->fetch();
+
+        if (!$wallet) {
+            throw new WalletNotFoundException("Wallet not found for userId: {$userId}");
+        }
+
+        // 手動 camelCase 組裝（對應 Laravel Eloquent $casts + JSON 序列化）
+        return [
+            'id' => (int) $wallet['id'],
+            'userId' => (int) $wallet['user_id'],
+            'currency' => $wallet['currency'],
+            'balance' => round((float) $wallet['balance'], 4),
+            'version' => (int) $wallet['version'],
+            'updatedAt' => Timestamp::format($wallet['updated_at']),
+        ];
+    }
+}
+```
+
+**為什麼手動組裝 camelCase 陣列：**
+- 沒有 ORM 自動轉換，所有 snake_case → camelCase 都是手寫
+- 所有 Service 層都負責把 DB 行轉成前端需要的 JSON 格式
+- 對應 Laravel 的 `$casts` / `protected $fillable` + `response()->json()`
+
 ---
 
 ## 數據流圖
