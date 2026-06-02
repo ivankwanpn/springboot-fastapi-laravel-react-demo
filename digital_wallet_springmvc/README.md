@@ -2,19 +2,19 @@
 
 > **技術驗證 / 抄作業項目**：用傳統 Spring MVC + XML 配置（無 Spring Boot）複現數位錢包的所有功能。展示老式 Java Web 專案的底層配置：`web.xml`、Spring XML bean 定義、手動事務管理。**API 合約與其他四個後端完全一致**，前端 `digital_wallet_frontend` 無需任何改動即可對接。
 
-## 五版本技術對照
+## 六版本技術對照
 
-| 功能 | Spring Boot | Spring MVC（傳統） | FastAPI | Laravel | 純 PHP |
+| 功能 | Spring Boot | Spring MVC | Node.js | FastAPI | Laravel | 純 PHP |
 |------|------------|-------------------|---------|---------|--------|
-| 語言 | Java 21 | Java 21 | Python 3.12+ | PHP 8.3+ | PHP 8.3+ |
-| Web 框架 | Spring Boot 3.5 | **Spring MVC 6.2** | FastAPI 0.115+ | Laravel 11 | **無** |
-| 配置方式 | `application.yaml` + 自動配置 | **`web.xml` + Spring XML** | Pydantic Settings | `.env` + config | 無（getenv） |
-| ORM / DB | MyBatis XML SQL | **MyBatis + 手動 SqlSessionFactory** | SQLAlchemy async | Eloquent | 原生 PDO |
-| Bean 管理 | `@Component` 自動掃描 | **XML `<bean>` 顯式定義** | FastAPI Depends | Laravel Container | 無（直接 new） |
-| 事務管理 | `@Transactional` 自動 | **`<tx:annotation-driven>` + DataSourceTransactionManager** | `session.begin()` | `DB::transaction()` | 手動 begin/commit |
-| Security | `SecurityFilterChain` @Bean | **`<security:http>` XML** | PyJWT + Depends | JwtMiddleware | 靜態方法 |
-| 伺服器 | 內嵌 Tomcat | **外部 Tomcat（WAR 部署）** | Uvicorn | PHP-FPM | `php -S` |
-| 打包 | Fat JAR | **WAR** | — | — | — |
+| 語言 | Java 21 | Java 21 | JavaScript | Python 3.12+ | PHP 8.3+ | PHP 8.3+ |
+| Web 框架 | Spring Boot 3.5 | **Spring MVC 6.2** | Express.js 4 | FastAPI 0.115+ | Laravel 11 | **無** |
+| 配置方式 | `application.yaml` | **`web.xml` + XML** | `.env` | Pydantic Settings | `.env` | 無 |
+| ORM / DB | MyBatis XML | **MyBatis + 手動** | pg + 手寫 SQL | SQLAlchemy async | Eloquent | 原生 PDO |
+| Bean/DI | `@Component` | **XML `<bean>`** | — | FastAPI Depends | Laravel Container | 無 |
+| 事務管理 | `@Transactional` | **`<tx:annotation-driven>`** | BEGIN/COMMIT | `session.begin()` | `DB::transaction()` | 手動 |
+| Security | `SecurityFilterChain` | **`<security:http>` XML** | auth middleware | PyJWT + Depends | JwtMiddleware | 靜態方法 |
+| 伺服器 | 內嵌 Tomcat | **外部 Tomcat** | 內建 | Uvicorn | PHP-FPM | `php -S` |
+| 打包 | Fat JAR | **WAR** | — | — | — | — |
 
 ## 技術清單
 
@@ -307,7 +307,7 @@ public SecurityFilterChain filterChain(HttpSecurity http) {
 
 ---
 
-## API 端點（五版本完全一致）
+## API 端點（六版本完全一致）
 
 | 方法 | 路徑 | JWT | 請求體 | 響應 | HTTP |
 |------|------|-----|--------|------|------|
@@ -690,17 +690,17 @@ npm run dev
 
 
 
-## 五版本程式碼量對比
+## 六版本程式碼量對比
 
-| 關注點 | Spring Boot | Spring MVC | FastAPI | Laravel | 純 PHP |
+| 關注點 | Spring Boot | Spring MVC | Node.js | FastAPI | Laravel | 純 PHP |
 |------|------------|-----------|---------|---------|--------|
-| 配置（XML/YAML/Properties） | ~15 | **~120** | ~10 | ~20 | — |
-| JWT + 安全 | ~60 | ~65 | ~50 | ~55 | ~45 |
-| 密碼處理 | ~5 | ~5 | ~4 | ~3 | ~3 |
-| 樂觀鎖 + 轉賬 | ~60 | ~65 | ~40 | ~45 | ~45 |
-| 異常處理 | ~55 | ~45 | ~35 | ~35 | ~35 |
-| API 路由 + Controller | ~40 | ~55 | ~30 | ~45 | ~45 |
-| Model/DTO | ~120 | ~120 | ~100 | ~50 | ~50 |
-| **總計** | **~375** | **~475** | **~286** | **~253** | **~263** |
+| 配置 | ~15 | **~120** | ~15 | ~10 | ~20 | — |
+| JWT + 安全 | ~60 | ~65 | ~40 | ~50 | ~55 | ~45 |
+| 密碼處理 | ~5 | ~5 | ~3 | ~4 | ~3 | ~3 |
+| 樂觀鎖 + 轉賬 | ~60 | ~65 | ~70 | ~40 | ~45 | ~45 |
+| 異常處理 | ~55 | ~45 | ~20 | ~35 | ~35 | ~35 |
+| API 路由 + Controller | ~40 | ~55 | ~45 | ~30 | ~45 | ~45 |
+| Model/DTO | ~120 | ~120 | ~50 | ~100 | ~50 | ~50 |
+| **總計** | **~375** | **~475** | **~243** | **~286** | **~253** | **~263** |
 
-Spring MVC 版程式碼量最大，主要因為 XML 配置（`web.xml` + 4 個 Spring XML ~120 行）和顯式 bean 裝配。這正好展示了 Spring Boot 的自動配置幫開發者節省了多少底層工作。純 PHP 和 Laravel 版最精簡。
+Node.js 版最精簡（~243 行），Spring MVC 版最長（~475 行）。，主要因為 XML 配置（`web.xml` + 4 個 Spring XML ~120 行）和顯式 bean 裝配。Spring Boot 的自動配置幫開發者省去大量 XML 配置工作。
