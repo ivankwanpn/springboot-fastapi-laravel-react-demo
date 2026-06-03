@@ -30,7 +30,7 @@ try {
         'GET /api/transactions' => true,
         'GET /api/admin/users' => 'admin',
         'GET /api/admin/transactions' => 'admin',
-        'GET /api/admin/stats' => 'admin',
+        'GET /api/admin/transactions/stats' => 'admin',
         default => null,
     };
 
@@ -59,7 +59,7 @@ try {
             $adminService = new AdminService();
             $result = $adminService->listUsers(
                 $request->input('search', ''),
-                (int) $request->input('page', 0),
+                (int) $request->input('page', 1),
                 (int) $request->input('size', 10)
             );
             JsonResponse::send($result);
@@ -72,15 +72,15 @@ try {
             JsonResponse::send($result);
         }
 
-        // PATCH /api/admin/users/{id}/disable
-        if ($method === 'PATCH' && count($parts) === 5 && $parts[2] === 'users' && $parts[4] === 'disable' && is_numeric($parts[3])) {
+        // PUT /api/admin/users/{id}/disable
+        if ($method === 'PUT' && count($parts) === 5 && $parts[2] === 'users' && $parts[4] === 'disable' && is_numeric($parts[3])) {
             $adminService = new AdminService();
             $adminService->disableUser((int) $parts[3]);
             JsonResponse::send(['status' => 'SUCCESS', 'message' => 'User disabled successfully']);
         }
 
-        // PATCH /api/admin/users/{id}/enable
-        if ($method === 'PATCH' && count($parts) === 5 && $parts[2] === 'users' && $parts[4] === 'enable' && is_numeric($parts[3])) {
+        // PUT /api/admin/users/{id}/enable
+        if ($method === 'PUT' && count($parts) === 5 && $parts[2] === 'users' && $parts[4] === 'enable' && is_numeric($parts[3])) {
             $adminService = new AdminService();
             $adminService->enableUser((int) $parts[3]);
             JsonResponse::send(['status' => 'SUCCESS', 'message' => 'User enabled successfully']);
@@ -93,14 +93,14 @@ try {
                 $request->input('username', null),
                 $request->input('fromDate', null),
                 $request->input('toDate', null),
-                (int) $request->input('page', 0),
+                (int) $request->input('page', 1),
                 (int) $request->input('size', 10)
             );
             JsonResponse::send($result);
         }
 
-        // GET /api/admin/stats
-        if ($method === 'GET' && $uri === '/api/admin/stats') {
+        // GET /api/admin/transactions/stats
+        if ($method === 'GET' && $uri === '/api/admin/transactions/stats') {
             $adminService = new AdminService();
             $result = $adminService->getTransactionStats(
                 $request->input('fromDate', null),

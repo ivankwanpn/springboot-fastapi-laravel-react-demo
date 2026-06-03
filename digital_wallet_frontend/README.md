@@ -303,7 +303,7 @@ export interface Transaction {
   id: number;
   fromWalletId: number | null;  // null = 系統充值
   toWalletId: number | null;
-  amount: number;
+  amount: string;               // NUMERIC(18,4) 以精確字串傳遞
   txType: string;               // 'TRANSFER'
   status: string;               // 'SUCCESS'
   createdAt: string;
@@ -352,6 +352,7 @@ interface AuthState {
   token: string | null;
   user: User | null;
   isAuthenticated: boolean;
+  isAdmin: boolean;          // 來自 user.role === 'ROLE_ADMIN'
   login: (token: string, user: User) => void;
   logout: () => void;
 }
@@ -394,7 +395,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ token, user, isAuthenticated: !!token, login, logout }}
+      value={{ token, user, isAuthenticated: !!token, isAdmin: user?.role === 'ROLE_ADMIN', login, logout }}
     >
       {children}
     </AuthContext.Provider>
@@ -509,6 +510,8 @@ import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import TransferPage from './pages/TransferPage';
 import TransactionHistoryPage from './pages/TransactionHistoryPage';
+import UserManagementPage from './pages/admin/UserManagementPage';
+import TransactionMonitoringPage from './pages/admin/TransactionMonitoringPage';
 
 // 監聽 auth:unauthorized 事件，執行客戶端導航（無整頁刷新）
 function AuthEventListener() {
@@ -542,6 +545,8 @@ function App() {
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/transfer" element={<TransferPage />} />
               <Route path="/transactions" element={<TransactionHistoryPage />} />
+              <Route path="/admin/users" element={<UserManagementPage />} />
+              <Route path="/admin/transactions" element={<TransactionMonitoringPage />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
@@ -1681,30 +1686,36 @@ interface AuthState {
 
 ```typescript
 import api from './api';
-import type { PaginatedResponse, AdminTransaction, TransactionStats } from '../types';
+import type { User, PaginatedResponse, UserDetail, AdminTransaction, TransactionStats } from '../types';
 
-export function getUsers(params: { page: number; size: number; search?: string }): Promise<PaginatedResponse<User>> {
-  return api.get('/admin/users', { params }).then((res) => res.data);
+export function listUsers(search: string, page: number, size: number): Promise<PaginatedResponse<User>> {
+  return api.get('/admin/users', { params: { search, page, size } }).then((res) => res.data);
 }
 
-export function getUserDetail(userId: number): Promise<UserDetail> {
-  return api.get(`/admin/users/${userId}`).then((res) => res.data);
+export function getUserDetail(id: number): Promise<UserDetail> {
+  return api.get(`/admin/users/${id}`).then((res) => res.data);
 }
 
-export function toggleUserStatus(userId: number, enabled: boolean): Promise<void> {
-  return api.put(`/admin/users/${userId}/status`, { enabled }).then((res) => res.data);
+export function disableUser(id: number): Promise<{ status: string; message: string }> {
+  return api.put(`/admin/users/${id}/disable`).then((res) => res.data);
 }
 
-export function getAdminTransactions(params: {
-  page: number; size: number; username?: string; startDate?: string; endDate?: string;
-}): Promise<PaginatedResponse<AdminTransaction>> {
-  return api.get('/admin/transactions', { params }).then((res) => res.data);
+export function enableUser(id: number): Promise<{ status: string; message: string }> {
+  return api.put(`/admin/users/${id}/enable`).then((res) => res.data);
 }
 
-export function getTransactionStats(params?: {
-  startDate?: string; endDate?: string;
-}): Promise<TransactionStats> {
-  return api.get('/admin/transactions/stats', { params }).then((res) => res.data);
+export function listTransactions(
+  username: string,
+  from: string,
+  to: string,
+  page: number,
+  size: number
+): Promise<PaginatedResponse<AdminTransaction>> {
+  return api.get('/admin/transactions', { params: { username: username || undefined, from: from || undefined, to: to || undefined, page, size } }).then((res) => res.data);
+}
+
+export function getTransactionStats(from: string, to: string): Promise<TransactionStats> {
+  return api.get('/admin/transactions/stats', { params: { from: from || undefined, to: to || undefined } }).then((res) => res.data);
 }
 ```
 
@@ -1717,7 +1728,7 @@ export function getTransactionStats(params?: {
 - **分頁** — 上一頁/下一頁按鈕 + 「Page X of Y」顯示
 - **角色 Badge** — `ROLE_ADMIN` 用 info Badge，`ROLE_USER` 用 success Badge
 - **用戶詳情 Modal** — 點擊用戶列可查看錢包餘額 + 最近交易
-- **啟用/停用** — toggle 按鈕呼叫 `toggleUserStatus()` 後刷新列表
+- **啟用/停用** — 按鈕分別呼叫 `disableUser()` 或 `enableUser()` 後刷新列表
 
 ```tsx
 // 核心狀態結構
@@ -1756,11 +1767,7 @@ useEffect(() => {
 </Card>
 <Card>
   <p className="text-xs text-navy-300">Total Volume</p>
-  <p className="text-2xl font-mono font-bold text-white">{stats.totalVolume.toFixed(2)} USDT</p>
-</Card>
-<Card>
-  <p className="text-xs text-navy-300">Daily Average</p>
-  <p className="text-2xl font-mono font-bold text-white">{stats.dailyAverage.toFixed(2)} USDT</p>
+  <p className="text-2xl font-mono font-bold text-white">{stats.totalAmount} USDT</p>
 </Card>
 ```
 
@@ -1813,40 +1820,32 @@ export default function BarChart({ data, height = 200, barColor = '#10b981' }: B
 
 ```typescript
 export interface PaginatedResponse<T> {
-  content: T[];
-  totalPages: number;
-  totalElements: number;
+  data: T[];
+  page: number;
   size: number;
-  number: number;
+  total: number;
 }
 
-export interface UserDetail {
-  user: User;
+export interface UserDetail extends User {
   wallet: Wallet | null;
   recentTransactions: Transaction[];
 }
 
-export interface AdminTransaction {
-  id: number;
+export interface AdminTransaction extends Transaction {
   fromUsername: string | null;
   toUsername: string | null;
-  amount: number;
-  txType: string;
-  status: string;
-  createdAt: string;
 }
 
 export interface TransactionStats {
   totalTransactions: number;
-  totalVolume: number;
-  dailyAverage: number;
-  dailyVolumes: DailyVolume[];
+  totalAmount: string;
+  dailyVolume: DailyVolume[];
 }
 
 export interface DailyVolume {
   date: string;
-  volume: number;
   count: number;
+  amount: string;
 }
 ```
 
@@ -2019,8 +2018,9 @@ npm run preview    # 預覽生產構建
 | `walletService.getWallet()` | GET | `/api/wallets` | — | `Wallet` |
 | `transactionService.transfer()` | POST | `/api/transactions/transfer` | `TransferRequest` | `ApiResponse` |
 | `transactionService.getTransactionHistory()` | GET | `/api/transactions` | — | `Transaction[]` |
-| `adminService.getUsers()` | GET | `/api/admin/users?page=&size=&search=` | — | `PaginatedResponse<User>` |
-| `adminService.getUserDetail()` | GET | `/api/admin/users/{userId}` | — | `UserDetail` |
-| `adminService.toggleUserStatus()` | PUT | `/api/admin/users/{userId}/status` | `{ enabled }` | `ApiResponse` |
-| `adminService.getAdminTransactions()` | GET | `/api/admin/transactions?page=&size=&username=&startDate=&endDate=` | — | `PaginatedResponse<AdminTransaction>` |
-| `adminService.getTransactionStats()` | GET | `/api/admin/transactions/stats?startDate=&endDate=` | — | `TransactionStats` |
+| `adminService.listUsers()` | GET | `/api/admin/users?search=&page=&size=` | — | `PaginatedResponse<User>` |
+| `adminService.getUserDetail()` | GET | `/api/admin/users/{id}` | — | `UserDetail` |
+| `adminService.disableUser()` | PUT | `/api/admin/users/{id}/disable` | — | `{ status, message }` |
+| `adminService.enableUser()` | PUT | `/api/admin/users/{id}/enable` | — | `{ status, message }` |
+| `adminService.listTransactions()` | GET | `/api/admin/transactions?username=&from=&to=&page=&size=` | — | `PaginatedResponse<AdminTransaction>` |
+| `adminService.getTransactionStats()` | GET | `/api/admin/transactions/stats?from=&to=` | — | `TransactionStats` |

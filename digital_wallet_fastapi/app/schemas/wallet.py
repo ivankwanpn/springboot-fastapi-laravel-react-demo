@@ -1,5 +1,4 @@
 from datetime import datetime
-from decimal import Decimal
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -10,6 +9,6 @@ class WalletResponse(BaseModel):
     id: int
     user_id: int = Field(alias="userId")
     currency: str
-    balance: Decimal
+    balance: float
     version: int
     updated_at: datetime = Field(alias="updatedAt")

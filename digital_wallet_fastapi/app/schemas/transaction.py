@@ -17,7 +17,7 @@ class TransactionResponse(BaseModel):
     id: int
     from_wallet_id: int | None = Field(alias="fromWalletId", default=None)
     to_wallet_id: int | None = Field(alias="toWalletId", default=None)
-    amount: Decimal
+    amount: float
     tx_type: str = Field(alias="txType")
     status: str
     created_at: datetime = Field(alias="createdAt")

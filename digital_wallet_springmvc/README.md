@@ -1,431 +1,195 @@
-# Digital Wallet Backend — Spring MVC（傳統 XML 配置）版 (Demo)
+# Digital Wallet Backend — Spring MVC 6（傳統 XML 配置）版 (Demo)
+> 技術驗證／參考實作：展示 Spring Boot 出現前的傳統開發方式。API 合約與其他五個後端完全一致。
 
-> **技術驗證 / 抄作業項目**：用傳統 Spring MVC + XML 配置（無 Spring Boot）複現數位錢包的所有功能。展示老式 Java Web 專案的底層配置：`web.xml`、Spring XML bean 定義、手動事務管理。**API 合約與其他四個後端完全一致**，前端 `digital_wallet_frontend` 無需任何改動即可對接。
+---
 
-## 六版本技術對照
-
-| 功能 | Spring Boot | Spring MVC | Node.js | FastAPI | Laravel | 純 PHP |
-|------|------------|-------------------|---------|---------|--------|
-| 語言 | Java 21 | Java 21 | JavaScript | Python 3.12+ | PHP 8.3+ | PHP 8.3+ |
-| Web 框架 | Spring Boot 3.5 | **Spring MVC 6.2** | Express.js 4 | FastAPI 0.115+ | Laravel 11 | **無** |
-| 配置方式 | `application.yaml` | **`web.xml` + XML** | `.env` | Pydantic Settings | `.env` | 無 |
-| ORM / DB | MyBatis XML | **MyBatis + 手動** | pg + 手寫 SQL | SQLAlchemy async | Eloquent | 原生 PDO |
-| Bean/DI | `@Component` | **XML `<bean>`** | — | FastAPI Depends | Laravel Container | 無 |
-| 事務管理 | `@Transactional` | **`<tx:annotation-driven>`** | BEGIN/COMMIT | `session.begin()` | `DB::transaction()` | 手動 |
-| Security | `SecurityFilterChain` | **`<security:http>` XML** | auth middleware | PyJWT + Depends | JwtMiddleware | 靜態方法 |
-| 伺服器 | 內嵌 Tomcat | **外部 Tomcat** | 內建 | Uvicorn | PHP-FPM | `php -S` |
-| 打包 | Fat JAR | **WAR** | — | — | — | — |
-
-## 技術清單
+## 1. 技術清單
 
 | 技術 | 版本 | 用途 |
 |------|------|------|
-| Java | 21 | 核心語言 |
-| Spring MVC | 6.2.11 | Web 框架（無 Boot） |
-| Spring Security | 6.5.5 | 認證與授權（XML 配置） |
-| MyBatis | 3.0.5 | SQL 映射 ORM |
-| MyBatis-Spring | 3.0.5 | Spring 整合 |
-| HikariCP | 6.3.2 | 連線池 |
-| PostgreSQL | 16（42.7.7 驅動） | 關聯式資料庫 |
-| JWT (jjwt) | 0.11.5 | 無狀態 Token 認證 |
+| Java | 21 | 執行環境 |
+| Spring MVC (spring-webmvc) | 6.2.11 | Web 層，DispatcherServlet |
+| Spring Security | 6.5.5 | 認證授權，XML namespace 配置 |
+| Spring JDBC | 6.2.11 | DataSourceTransactionManager |
+| MyBatis (mybatis / mybatis-spring) | 3.0.5 / 3.0.5 | ORM，XML Mapper |
+| HikariCP | 6.3.2 | Connection Pool |
+| jjwt (jjwt-api / impl / jackson) | 0.11.5 | JWT HS256 簽名與驗證 |
+| BCrypt (spring-security-crypto) | 6.5.5 | 密碼雜湊 |
 | Jackson | 2.18.3 | JSON 序列化 |
-| Lombok | 1.18.38 | 減少樣板程式碼 |
-| Tomcat | 10+ | Servlet 容器 |
+| Hibernate Validator | 8.0.2.Final | Bean Validation (@Valid) |
+| PostgreSQL Driver | 42.7.7 | 資料庫連線 |
+| Maven WAR Plugin | 3.4.0 | 打包 WAR |
+| Tomcat | 10.1 | Servlet Container（部署目標） |
+
+**No Spring Boot（純 XML 配置）**。所有 Bean 透過 XML 定義，依賴注入使用 setter injection 或 @Autowired（混用，詳見下文）。Lombok 用於 Entity 和基本 DTO，Admin DTO 全部手寫 getter/setter。
 
 ---
 
-## 完整專案結構
+## 2. 專案結構
 
 ```
 digital_wallet_springmvc/
-├── pom.xml                                     # Maven 依賴（無 spring-boot-starter）
-│
+├── pom.xml                                         # Maven 依賴與 WAR 打包設定
 ├── src/main/
-│   ├── webapp/
-│   │   └── WEB-INF/
-│   │       ├── web.xml                         # DispatcherServlet + ContextLoaderListener + Security Filter
-│   │       ├── applicationContext.xml          # 根上下文：DataSource, MyBatis, Tx, Service Bean
-│   │       ├── dispatcher-servlet.xml          # Web 上下文：Controller 掃描
-│   │       └── spring-security.xml             # Security：無狀態 JWT, CSRF 關閉
-│   │
 │   ├── resources/
-│   │   ├── jdbc.properties                     # 資料庫連線（PostgreSQL 5433）
-│   │   ├── jwt.properties                      # JWT secret / expiration
-│   │   └── mapper/                             # MyBatis SQL XML
-│   │       ├── UserMapper.xml                  #   插入用戶、按 username 查詢
-│   │       ├── WalletMapper.xml                #   插入錢包、按 userId 查詢、樂觀鎖扣款、加款
-│   │       └── TransactionMapper.xml           #   插入交易、按 walletId 查詢歷史
-│   │
-│   └── java/com/digitalwallet/
-│       ├── controller/
-│       │   ├── AuthController.java             # POST /api/auth/register, /login
-│       │   ├── WalletController.java           # GET /api/wallets
-│       │   ├── TransactionController.java      # POST /api/transactions/transfer, GET /api/transactions
-│       │   └── GlobalExceptionHandler.java     # @RestControllerAdvice：統一 JSON 錯誤
-│       │
-│       ├── service/
-│       │   ├── AuthService.java                # register（BCrypt + 查重 + 創建錢包）, login
-│       │   ├── WalletService.java              # getByUserId（查詢 + DTO 轉換）
-│       │   └── TransactionService.java         # transfer（樂觀鎖 + @Transactional）, getHistory
-│       │
-│       ├── mapper/
-│       │   ├── UserMapper.java                 # MyBatis interface（insert, findByUsername）
-│       │   ├── WalletMapper.java               # MyBatis interface（insert, findByUserId, 樂觀鎖）
-│       │   └── TransactionMapper.java          # MyBatis interface（insert, findByWalletId）
-│       │
-│       ├── model/
-│       │   ├── User.java                       # 對應 users 表
-│       │   ├── Wallet.java                     # 對應 wallets 表（含 version 樂觀鎖欄位）
-│       │   ├── Transaction.java                # 對應 transactions 表
-│       │   ├── ApiResponse.java                # { status, message } 統一回應
-│       │   ├── LoginRequest.java               # { username, password }
-│       │   ├── LoginResponse.java              # { token, user }
-│       │   ├── TransferRequest.java            # { toUsername, amount }
-│       │   ├── UserDTO.java                    # 不含 passwordHash 的安全 DTO
-│       │   ├── WalletDTO.java
-│       │   └── TransactionDTO.java
-│       │
-│       ├── exception/
-│       │   ├── AppException.java               # 基礎業務異常（statusCode + message）
-│       │   ├── AuthenticationException.java    # 401
-│       │   ├── InsufficientBalanceException.java # 400
-│       │   ├── WalletNotFoundException.java    # 404
-│       │   ├── ConcurrentModificationException.java # 409
-│       │   └── DuplicateUsernameException.java # 409
-│       │
-│       ├── security/
-│       │   ├── JwtAuthFilter.java              # OncePerRequestFilter：Bearer Token → SecurityContext
-│       │   ├── RestAuthEntryPoint.java         # 401 → JSON（非 Spring Boot 預設）
-│       │   └── CorsConfig.java                 # CORS 配置
-│       │
-│       └── util/
-│           └── JwtUtil.java                    # generateToken / extractUserId / isTokenValid
+│   │   ├── jdbc.properties                         # 資料庫連線參數
+│   │   ├── jwt.properties                          # JWT secret 與過期時間
+│   │   └── mapper/
+│   │       ├── UserMapper.xml                      # MyBatis SQL 對應
+│   │       ├── WalletMapper.xml
+│   │       └── TransactionMapper.xml
+│   └── webapp/WEB-INF/
+│       ├── web.xml                                 # Servlet 容器配置（DispatcherServlet、Spring Security Filter）
+│       ├── applicationContext.xml                  # Spring Root Context（Bean 定義、MyBatis、Transactions）
+│       ├── spring-security.xml                     # Spring Security（intercept-url、JWT filter、CORS）
+│       └── dispatcher-servlet.xml                  # Spring MVC Web Context（component-scan）
+└── src/main/java/com/digitalwallet/
+    ├── controller/
+    │   ├── AuthController.java                     # POST /api/auth/register, /api/auth/login
+    │   ├── WalletController.java                   # GET /api/wallets
+    │   ├── TransactionController.java               # POST /api/transactions/transfer, GET /api/transactions
+    │   ├── AdminController.java                    # GET/PUT /api/admin/*
+    │   └── GlobalExceptionHandler.java              # @RestControllerAdvice
+    ├── service/
+    │   ├── AuthService.java                        # register() + login()
+    │   ├── WalletService.java                      # getByUserId()
+    │   ├── TransactionService.java                  # transfer() + getHistory()
+    │   └── AdminService.java                       # listUsers(), getUserDetail(), disableUser(), enableUser(), listTransactions(), getTransactionStats()
+    ├── mapper/
+    │   ├── UserMapper.java                         # MyBatis Mapper 介面
+    │   ├── WalletMapper.java
+    │   └── TransactionMapper.java
+    ├── model/
+    │   ├── User.java                               # Entity（對應 users 表）
+    │   ├── Wallet.java                             # Entity（對應 wallets 表）
+    │   ├── Transaction.java                        # Entity（對應 transactions 表）
+    │   ├── UserDTO.java                            # 用戶回傳 DTO
+    │   ├── WalletDTO.java                          # 錢包回傳 DTO
+    │   ├── TransactionDTO.java                     # 交易回傳 DTO
+    │   ├── LoginRequest.java                       # 登入／註冊請求
+    │   ├── LoginResponse.java                      # 登入回應（token + user）
+    │   ├── TransferRequest.java                    # 轉帳請求
+    │   ├── ApiResponse.java                        # 通用 API 回應
+    │   ├── PaginatedResponse.java                  # 分頁回應（手動 getter/setter）
+    │   ├── UserDetailDTO.java                      # Admin 用戶詳情（手動 getter/setter）
+    │   ├── AdminTransactionDTO.java                # Admin 交易記錄（手動 getter/setter）
+    │   ├── TransactionStatsDTO.java                # Admin 交易統計（手動 getter/setter）
+    │   └── DailyVolumeDTO.java                     # Admin 每日交易量（手動 getter/setter）
+    ├── security/
+    │   ├── JwtAuthFilter.java                      # OncePerRequestFilter，解析 JWT
+    │   ├── RestAuthEntryPoint.java                 # 401 → JSON 回應
+    │   └── CorsConfig.java                         # CORS 配置
+    ├── util/
+    │   └── JwtUtil.java                            # JWT 生成／驗證（setter injection）
+    └── exception/
+        ├── AppException.java                       # 基礎業務例外（statusCode + message）
+        ├── AuthenticationException.java            # 401
+        ├── DuplicateUsernameException.java          # 409
+        ├── InsufficientBalanceException.java        # 400
+        ├── WalletNotFoundException.java             # 404
+        └── ConcurrentModificationException.java     # 409（樂觀鎖衝突）
 ```
+
+**依賴方向**：`Controller → Service → Mapper → XML SQL`，所有 Bean 在 `applicationContext.xml` 中以 `<property>` 注入。
 
 ---
 
-## 與 Spring Boot 版的關鍵差異：XML 配置 vs 自動配置
+## 3. API 端點
 
-> 如果你已經看過 `digital_wallet`（Spring Boot 版），以下是這個傳統版本最核心的差異：
+### 3.1 用戶端 API（5 個端點）
 
-### Bean 定義：XML vs 自動掃描
+| 方法 | 路徑 | Auth | 請求體 | 回應 | 說明 |
+|------|------|------|--------|------|------|
+| POST | `/api/auth/register` | 無 | `{"username":"alice","password":"secret"}` | `{"status":"SUCCESS","message":"User registered successfully"}` | 註冊並自動建立錢包 |
+| POST | `/api/auth/login` | 無 | `{"username":"alice","password":"secret"}` | `{"token":"eyJhb...","user":{...}}` | 登入，返回 JWT |
+| GET | `/api/wallets` | JWT | — | `{"id":1,"userId":1,"currency":"USDT","balance":100.0000,"version":3,"updatedAt":"..."}` | 查詢當前用戶錢包 |
+| POST | `/api/transactions/transfer` | JWT | `{"toUsername":"bob","amount":10.5}` | `{"status":"SUCCESS","message":"Transfer completed successfully"}` | 轉帳（樂觀鎖） |
+| GET | `/api/transactions` | JWT | — | `[{"id":1,"fromWalletId":1,"toWalletId":2,"amount":10.5,"txType":"TRANSFER","status":"SUCCESS","createdAt":"..."}]` | 查詢當前用戶交易記錄 |
 
-**Spring Boot 版**用 `@Component` + `@Service` 自動掃描：
+### 3.2 管理員 API（6 個端點）—— 需 `ROLE_ADMIN`
 
-```java
-@Service
-@RequiredArgsConstructor
-public class AuthServiceImpl implements AuthService {
-    private final UserMapper userMapper;
-    // Spring 自動注入
-}
-```
+| 方法 | 路徑 | Auth | 查詢參數 | 回應 | 說明 |
+|------|------|------|----------|------|------|
+| GET | `/api/admin/users` | JWT + ROLE_ADMIN | `?search=&page=1&size=20` | `{"data":[...],"page":1,"size":20,"total":50}` | 用戶列表（分頁 + 搜尋） |
+| GET | `/api/admin/users/{id}` | JWT + ROLE_ADMIN | — | `{"id":1,"username":"alice","role":"ROLE_USER","wallet":{...},"recentTransactions":[...]}` | 用戶詳情 + 錢包 + 最近 5 筆交易 |
+| PUT | `/api/admin/users/{id}/disable` | JWT + ROLE_ADMIN | — | `{"status":"SUCCESS","message":"User disabled successfully"}` | 停用用戶（role 改為 ROLE_DISABLED） |
+| PUT | `/api/admin/users/{id}/enable` | JWT + ROLE_ADMIN | — | `{"status":"SUCCESS","message":"User enabled successfully"}` | 啟用用戶（role 改為 ROLE_USER） |
+| GET | `/api/admin/transactions` | JWT + ROLE_ADMIN | `?username=&from=&to=&page=1&size=20` | `{"data":[{...with fromUsername & toUsername...}],"page":1,"size":20,"total":200}` | 交易列表（分頁 + 日期範圍 + 用戶名篩選） |
+| GET | `/api/admin/transactions/stats` | JWT + ROLE_ADMIN | `?from=&to=` | `{"totalTransactions":150,"totalAmount":12345.67,"dailyVolume":[{...}]}` | 交易統計（總筆數 + 總金額 + 每日交易量） |
 
-**Spring MVC 版**用 XML `<bean>` 顯式定義，setter 注入：
-
-```xml
-<!-- applicationContext.xml -->
-<bean id="authService" class="com.digitalwallet.service.AuthService">
-    <property name="userMapper" ref="userMapper"/>
-    <property name="walletMapper" ref="walletMapper"/>
-    <property name="passwordEncoder" ref="passwordEncoder"/>
-    <property name="jwtUtil" ref="jwtUtil"/>
-</bean>
-```
-
-```java
-// AuthService.java — 無 @Service、無 @Autowired
-public class AuthService {
-    private UserMapper userMapper;
-    public void setUserMapper(UserMapper userMapper) { this.userMapper = userMapper; }
-}
-```
-
-**為什麼用 setter 注入而不是 constructor 注入：**
-- XML `<property>` 對應 Java setter 方法，這是傳統 Spring 的標準做法
-- 如果用 constructor 注入，需要在 XML 中用 `<constructor-arg>` 並嚴格按照參數順序
-
-### DataSource + MyBatis：手動組裝 vs Starter
-
-**Spring Boot 版**一行 `application.yaml` + `mybatis-spring-boot-starter` 自動完成：
-
-```yaml
-spring.datasource.url: jdbc:postgresql://localhost:5433/digital_wallet
-mybatis.mapper-locations: classpath:mapper/*.xml
-```
-
-**Spring MVC 版**需要手動定義三個 bean：
-
-```xml
-<!-- DataSource -->
-<bean id="dataSource" class="com.zaxxer.hikari.HikariDataSource" destroy-method="close">
-    <property name="driverClassName" value="${jdbc.driver}"/>
-    <property name="jdbcUrl" value="${jdbc.url}"/>
-    <property name="username" value="${jdbc.username}"/>
-    <property name="password" value="${jdbc.password}"/>
-</bean>
-
-<!-- SqlSessionFactory -->
-<bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
-    <property name="dataSource" ref="dataSource"/>
-    <property name="mapperLocations" value="classpath:mapper/*.xml"/>
-    <!-- snake_case → camelCase：讓 DB 的 password_hash 自動映射到 passwordHash -->
-    <property name="configuration">
-        <bean class="org.apache.ibatis.session.Configuration">
-            <property name="mapUnderscoreToCamelCase" value="true"/>
-        </bean>
-    </property>
-</bean>
-
-<!-- Mapper Scanner -->
-<bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">
-    <property name="basePackage" value="com.digitalwallet.mapper"/>
-    <property name="sqlSessionFactoryBeanName" value="sqlSessionFactory"/>
-</bean>
-```
-
-**為什麼 mapper XML 要用 `resultMap` 而不是 `resultType`：**
-- `resultType = "com.digitalwallet.model.User"` 依賴 MyBatis 隱式映射
-- 改用 `<resultMap>` + 顯式 `<result column="password_hash" property="passwordHash"/>` 更明確
-- 雙層保障：`mapUnderscoreToCamelCase` 作為全局配置 + `resultMap` 作為每個查詢的顯式映射
-- 生產環境不應使用 `SELECT *`，每個查詢都明確列出所需欄位
-
-**為什麼需要 MapperScannerConfigurer：**
-- MyBatis Mapper 是 interface，沒有實現類，無法用 `<bean>` 定義
-- `MapperScannerConfigurer` 掃描指定 package，自動為每個 Mapper interface 創建 JDK 動態代理
-
-### Spring Security：XML namespace vs @Bean
-
-**Spring Boot 版**用 Java Config：
-
-```java
-@Bean
-public SecurityFilterChain filterChain(HttpSecurity http) {
-    http.csrf(csrf -> csrf.disable())
-        .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-        .authorizeHttpRequests(auth -> auth
-            .requestMatchers("/api/auth/**").permitAll()
-            .anyRequest().authenticated()
-        );
-}
-```
-
-**Spring MVC 版**用 XML namespace：
-
-```xml
-<http auto-config="false" use-expressions="true"
-      create-session="stateless"
-      entry-point-ref="restAuthEntryPoint">
-    <csrf disabled="true"/>
-    <cors configuration-source-ref="corsConfig"/>
-    <intercept-url pattern="/api/auth/**" access="permitAll()"/>
-    <intercept-url pattern="/api/**" access="isAuthenticated()"/>
-    <custom-filter ref="jwtAuthFilter" before="PRE_AUTH_FILTER"/>
-</http>
-```
-
-### 屬性注入：PropertyPlaceholderConfigurer vs @Value
-
-**Spring Boot 版**用 `@Value("${jwt.secret}")` 自動注入。
-
-**Spring MVC 版**需要先註冊 `PropertyPlaceholderConfigurer`：
-
-```xml
-<context:property-placeholder location="classpath:jdbc.properties"/>
-<context:property-placeholder location="classpath:jwt.properties"/>
-```
-
-然後在 bean 定義中使用 `${}` 佔位符：
-
-```xml
-<bean id="jwtUtil" class="com.digitalwallet.util.JwtUtil">
-    <property name="secret" value="${jwt.secret}"/>
-    <property name="expiration" value="${jwt.expiration}"/>
-</bean>
-```
-
-### 啟動方式：web.xml vs main()
-
-**Spring Boot**：`java -jar app.jar` — 內嵌 Tomcat，一行指令啟動。
-
-**Spring MVC**：
-1. `mvn clean package` → 產出 WAR
-2. 將 WAR 放到 Tomcat 的 `webapps/` 目錄
-3. 啟動 Tomcat（`startup.sh`）
-4. Tomcat 讀取 `web.xml` → 初始化 Spring 容器 → 掛載 DispatcherServlet
-
-`web.xml` 中定義了兩個關鍵元件：
-
-```xml
-<!-- Root ApplicationContext：Service, Mapper, DataSource -->
-<listener>
-    <listener-class>org.springframework.web.context.ContextLoaderListener</listener-class>
-</listener>
-
-<!-- DispatcherServlet 掛在 /，Controller 自行帶 /api 前綴 -->
-<servlet>
-    <servlet-name>dispatcher</servlet-name>
-    <servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
-    <load-on-startup>1</load-on-startup>
-</servlet>
-<servlet-mapping>
-    <servlet-name>dispatcher</servlet-name>
-    <url-pattern>/</url-pattern>
-</servlet-mapping>
-```
-
-**為什麼 Servlet 掛 `/` 而不是 `/api/*`：**
-- Controller 使用 `@RequestMapping("/api/...")` 定義路徑
-- 如果 Servlet 也掛 `/api/*`，實際路徑會變成 `/api/api/...`
-- 把 Servlet 掛 `/` 是最乾淨的做法：Controller 自行管理 `/api` 前綴，Servlet 不疊加
-- 同時確保 Spring Security 的 `<intercept-url pattern="/api/**">` 規則直接匹配到正確的外部路徑
-
-**為什麼分兩個上下文：**
-- Root Context（`ContextLoaderListener` 載入）：Service、Mapper、DataSource — 全局共享
-- Web Context（`DispatcherServlet` 載入）：Controller — 可以有多個 DispatcherServlet
-- Controller 可以通過 `@Autowired` 引用 Root Context 中的 Bean
+錯誤回應格式：`{"status":"ERROR","message":"..."}`
 
 ---
 
-## 如何快速找到要抄的部分
+## 4. 核心實作模式
 
-| 你想學/抄什麼 | Spring MVC 檔案 | 對應 Spring Boot | 對應 FastAPI | 對應 Laravel | 對應 純 PHP |
-|-------------|----------------|-----------------|-------------|-------------|------------|
-| Maven 依賴 | [pom.xml](pom.xml) | pom.xml | requirements.txt | composer.json | composer.json |
-| web.xml + Spring 啟動 | [web.xml](src/main/webapp/WEB-INF/web.xml) | @SpringBootApplication | main.py | bootstrap/app.php | public/index.php |
-| Bean 定義（DataSource, MyBatis, Tx） | [applicationContext.xml](src/main/webapp/WEB-INF/applicationContext.xml) | application.yaml | config.py | config/database.php | src/Config/Database.php |
-| Controller 掃描 | [dispatcher-servlet.xml](src/main/webapp/WEB-INF/dispatcher-servlet.xml) | @ComponentScan | APIRouter | routes/api.php | match() |
-| Security XML 配置 | [spring-security.xml](src/main/webapp/WEB-INF/spring-security.xml) | SecurityConfig.java | deps.py | JwtMiddleware | src/Middleware/ |
-| MyBatis Mapper interface | [mapper/](src/main/java/com/digitalwallet/mapper/) | mapper/ | models/ | app/Models/ | 原生 SQL |
-| MyBatis SQL XML | [UserMapper.xml](src/main/resources/mapper/UserMapper.xml) | mapper/*.xml | — | — | 原生 PDO |
-| Service（業務邏輯） | [service/](src/main/java/com/digitalwallet/service/) | service/impl/ | services/ | app/Services/ | src/Service/ |
-| Controller（REST） | [controller/](src/main/java/com/digitalwallet/controller/) | controller/ | api/ | Controllers/ | switch() |
-| JWT 生成/驗證 | [JwtUtil.java](src/main/java/com/digitalwallet/util/JwtUtil.java) | JwtUtil.java | security.py | JwtHelper.php | src/Util/JwtHelper.php |
-| JWT Filter | [JwtAuthFilter.java](src/main/java/com/digitalwallet/security/JwtAuthFilter.java) | JwtAuthenticationFilter.java | deps.py | JwtMiddleware | src/Middleware/ |
-| 異常處理 | [GlobalExceptionHandler.java](src/main/java/com/digitalwallet/controller/GlobalExceptionHandler.java) | GlobalExceptionHandler.java | handlers.py | Exceptions::render() | try/catch |
-| DB Schema | [mapper XML](src/main/resources/mapper/) | db.sql | db.sql | migrations/ | schema.sql |
+### 模式 1：專案初始化（pom.xml + web.xml + Properties）
 
----
-
-## API 端點（六版本完全一致）
-
-| 方法 | 路徑 | JWT | 請求體 | 響應 | HTTP |
-|------|------|-----|--------|------|------|
-| POST | `/api/auth/register` | 否 | `{"username":"alice","password":"123456"}` | `{"status":"SUCCESS","message":"User registered successfully"}` | 201 |
-| POST | `/api/auth/login` | 否 | `{"username":"alice","password":"123456"}` | `{"token":"eyJ...","user":{"id":1,"username":"alice","role":"ROLE_USER","createdAt":"..."}}` | 200 |
-| GET | `/api/wallets` | 是 | — | `{"id":1,"userId":1,"currency":"USDT","balance":100.0000,"version":3,"updatedAt":"..."}` | 200 |
-| POST | `/api/transactions/transfer` | 是 | `{"toUsername":"bob","amount":50.00}` | `{"status":"SUCCESS","message":"Transfer completed successfully"}` | 200 |
-| GET | `/api/transactions` | 是 | — | `[{...TransactionDTO}, ...]` | 200 |
-| GET | `/api/admin/users` | 是 | ?search=&page=1&size=20 | `PaginatedResponse<UserDTO>` | 列出所有用戶（需 ROLE_ADMIN） |
-| GET | `/api/admin/users/{id}` | 是 | — | `UserDetailDTO` | 用戶詳情 |
-| PUT | `/api/admin/users/{id}/disable` | 是 | — | `ApiResponse` | 禁用用戶 |
-| PUT | `/api/admin/users/{id}/enable` | 是 | — | `ApiResponse` | 啟用用戶 |
-| GET | `/api/admin/transactions` | 是 | ?username=&from=&to=&page=1&size=20 | `PaginatedResponse<AdminTransactionDTO>` | 所有交易記錄 |
-| GET | `/api/admin/transactions/stats` | 是 | ?from=&to= | `TransactionStatsDTO` | 交易統計 |
-
-### 管理後台（Admin Dashboard）
-
-新增管理後台功能：JWT 包含 `role` claim；`spring-security.xml` 對 `/api/admin/**` 使用 `hasAuthority('ROLE_ADMIN')`；新增 `AdminService` + `AdminController`（於 `applicationContext.xml` 註冊 bean）；新增 5 個 Admin DTO（手寫 getters/setters，無 Lombok）。
-
-
-## 錯誤響應格式
-
-```json
-{"status": "ERROR", "message": "..."}
-```
-
-| HTTP | 異常類 | 場景 |
-|------|------|------|
-| 400 | `InsufficientBalanceException` | 餘額不足 |
-| 400 | `IllegalArgumentException` | amount <= 0、自己轉給自己、recipient 不存在 |
-| 401 | `AuthenticationException` | 登入失敗、Token 無效/過期 |
-| 404 | `WalletNotFoundException` | 錢包不存在 |
-| 409 | `ConcurrentModificationException` | 樂觀鎖版本衝突 |
-| 409 | `DuplicateUsernameException` | 用戶名重複 |
-| 500 | `Exception` (fallback) | 未預期錯誤 |
-
----
-
-## 核心實作模式（每個檔案都有完整程式碼 + 解釋）
-
-### 模式 1：Maven WAR 專案初始化
-
-#### pom.xml — 手動管理所有依賴版本（無 Spring Boot BOM）
+**pom.xml — WAR 打包、無 Spring Boot**
 
 ```xml
 <groupId>com.digitalwallet</groupId>
 <artifactId>digital_wallet_springmvc</artifactId>
+<version>1.0-SNAPSHOT</version>
 <packaging>war</packaging>
 
 <properties>
+    <java.version>21</java.version>
     <spring.version>6.2.11</spring.version>
     <spring-security.version>6.5.5</spring-security.version>
     <mybatis.version>3.0.5</mybatis.version>
+    <mybatis-spring.version>3.0.5</mybatis-spring.version>
+    <jackson.version>2.18.3</jackson.version>
+    <jjwt.version>0.11.5</jjwt.version>
 </properties>
-
-<dependencies>
-    <!-- Spring MVC（無 Boot） -->
-    <dependency>
-        <groupId>org.springframework</groupId>
-        <artifactId>spring-webmvc</artifactId>
-        <version>${spring.version}</version>
-    </dependency>
-    <!-- Spring Security -->
-    <dependency>
-        <groupId>org.springframework.security</groupId>
-        <artifactId>spring-security-web</artifactId>
-        <version>${spring-security.version}</version>
-    </dependency>
-    <!-- MyBatis + MyBatis-Spring -->
-    <dependency>
-        <groupId>org.mybatis</groupId>
-        <artifactId>mybatis</artifactId>
-        <version>${mybatis.version}</version>
-    </dependency>
-    <!-- PostgreSQL、HikariCP、Jackson、jjwt、Lombok、jakarta.servlet-api（provided） -->
-</dependencies>
-
-<build>
-    <plugins>
-        <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-war-plugin</artifactId>
-            <version>3.4.0</version>
-        </plugin>
-    </plugins>
-</build>
 ```
 
-**為什麼用 `maven-war-plugin` 而不是 `spring-boot-maven-plugin`：**
-- 這個版本刻意展示傳統 WAR 部署，不用 Boot 的 fat JAR
-- WAR 部署到外部 Tomcat，而不是內嵌 Tomcat
-
-#### jdbc.properties + jwt.properties — 環境配置分離
-
-```properties
-# jdbc.properties
-jdbc.driver=org.postgresql.Driver
-jdbc.url=jdbc:postgresql://localhost:5433/digital_wallet
-jdbc.username=postgres
-jdbc.password=root
-
-# jwt.properties
-jwt.secret=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
-jwt.expiration=86400000
-```
-
-**為什麼用 `.properties` 而不是 `.yaml`：**
-- 傳統 Spring 專案慣例
-- `PropertyPlaceholderConfigurer` 原生支援 `.properties` 格式
-- 與 Spring Boot 版的 `.yaml` 對照，展示兩種配置風格
-
----
-
-### 模式 2：web.xml — Servlet 生命週期入口
+關鍵依賴（無 spring-boot-starter-*）：
 
 ```xml
-<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee" version="6.0">
-    <!-- Root ApplicationContext：DataSource、MyBatis、Service、Security -->
+<!-- Spring MVC（非 Boot） -->
+<dependency>
+    <groupId>org.springframework</groupId>
+    <artifactId>spring-webmvc</artifactId>
+    <version>${spring.version}</version>
+</dependency>
+
+<!-- Spring Security -->
+<dependency>
+    <groupId>org.springframework.security</groupId>
+    <artifactId>spring-security-web</artifactId>
+    <version>${spring-security.version}</version>
+</dependency>
+
+<!-- MyBatis -->
+<dependency>
+    <groupId>org.mybatis</groupId>
+    <artifactId>mybatis</artifactId>
+    <version>${mybatis.version}</version>
+</dependency>
+<dependency>
+    <groupId>org.mybatis</groupId>
+    <artifactId>mybatis-spring</artifactId>
+    <version>${mybatis-spring.version}</version>
+</dependency>
+
+<!-- HikariCP（手動配置 DataSource） -->
+<dependency>
+    <groupId>com.zaxxer</groupId>
+    <artifactId>HikariCP</artifactId>
+    <version>6.3.2</version>
+</dependency>
+```
+
+> Spring Boot 的 `spring-boot-starter-web` 會自動帶入 embedded Tomcat、auto-configuration、application.properties 等機制。這裡我們全部手動處理。
+
+**web.xml — Servlet 2.x/3.x 風格的部署描述符**
+
+```xml
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee"
+         version="6.0">
+
+    <!-- Root ApplicationContext（載入 Service、Mapper、DataSource 等 Bean） -->
     <listener>
         <listener-class>org.springframework.web.context.ContextLoaderListener</listener-class>
     </listener>
@@ -437,7 +201,7 @@ jwt.expiration=86400000
         </param-value>
     </context-param>
 
-    <!-- Spring Security Filter -->
+    <!-- Spring Security Filter（DelegatingFilterProxy） -->
     <filter>
         <filter-name>springSecurityFilterChain</filter-name>
         <filter-class>org.springframework.web.filter.DelegatingFilterProxy</filter-class>
@@ -447,7 +211,7 @@ jwt.expiration=86400000
         <url-pattern>/*</url-pattern>
     </filter-mapping>
 
-    <!-- DispatcherServlet: Controller + ExceptionHandler -->
+    <!-- DispatcherServlet（Web Context，載入 Controller） -->
     <servlet>
         <servlet-name>dispatcher</servlet-name>
         <servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
@@ -464,38 +228,55 @@ jwt.expiration=86400000
 </web-app>
 ```
 
-**為什麼分兩個上下文：**
-- **Root Context**（`ContextLoaderListener`）：Service、Mapper、DataSource、Security — 全局共享
-- **Web Context**（`DispatcherServlet`）：Controller、ExceptionHandler — 可有多個 DispatcherServlet
-- Controller 用 `@Autowired` 引用 Root Context 中的 Bean
+**兩層 Context 架構**：
+- **Root Context**（`ContextLoaderListener`）：`applicationContext.xml` + `spring-security.xml`。管理 Service、Mapper、DataSource、Security 等全域 Bean。
+- **Web Context**（`DispatcherServlet`）：`dispatcher-servlet.xml`。管理 Controller 等 Web 層 Bean。
 
-**為什麼 `<url-pattern>/</url-pattern>` 而不是 `/api/*`：**
-- Controller 已經使用 `@RequestMapping("/api/...")` 定義前綴
-- Servlet 再加 `/api/*` 會造成路徑重複 → `/api/api/...`
-- 掛 `/` 是確保 Controller 路徑即外部 URL 的最乾淨做法
+Root Context 的 Bean 對所有 DispatcherServlet 可見；Web Context 的 Bean 僅在該 Servlet 內可見。
+
+**jdbc.properties**
+
+```properties
+jdbc.driver=org.postgresql.Driver
+jdbc.url=jdbc:postgresql://localhost:5433/digital_wallet
+jdbc.username=postgres
+jdbc.password=root
+```
+
+**jwt.properties**
+
+```properties
+jwt.secret=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+jwt.expiration=86400000
+```
+
+屬性檔案透過 `applicationContext.xml` 中的 `<context:property-placeholder>` 載入，在 XML 中以 `${jdbc.url}` 語法引用。
 
 ---
 
-### 模式 3：applicationContext.xml — Root Context Bean 定義
+### 模式 2：Spring XML Bean 配置（applicationContext.xml）
+
+這是本專案最核心的檔案。所有 Bean（DataSource、MyBatis、TransactionManager、Service、Controller）都在這裡定義。
 
 ```xml
 <beans xmlns="http://www.springframework.org/schema/beans"
-       xmlns:context="http://www.springframework.org/schema/context"
        xmlns:tx="http://www.springframework.org/schema/tx">
 
-    <!-- 載入 properties -->
-    <context:property-placeholder location="classpath:jdbc.properties"/>
-    <context:property-placeholder location="classpath:jwt.properties"/>
+    <!-- Property Files -->
+    <context:property-placeholder location="classpath:jdbc.properties" order="0"/>
+    <context:property-placeholder location="classpath:jwt.properties" order="1"/>
 
-    <!-- HikariCP DataSource -->
+    <!-- DataSource（HikariCP） -->
     <bean id="dataSource" class="com.zaxxer.hikari.HikariDataSource" destroy-method="close">
         <property name="driverClassName" value="${jdbc.driver}"/>
         <property name="jdbcUrl" value="${jdbc.url}"/>
         <property name="username" value="${jdbc.username}"/>
         <property name="password" value="${jdbc.password}"/>
+        <property name="maximumPoolSize" value="10"/>
+        <property name="minimumIdle" value="2"/>
     </bean>
 
-    <!-- MyBatis SqlSessionFactory — 手動配置 snake_case → camelCase -->
+    <!-- MyBatis SqlSessionFactory -->
     <bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
         <property name="dataSource" ref="dataSource"/>
         <property name="mapperLocations" value="classpath:mapper/*.xml"/>
@@ -506,9 +287,10 @@ jwt.expiration=86400000
         </property>
     </bean>
 
-    <!-- MapperScannerConfigurer — 自動掃描 Mapper interface -->
+    <!-- MyBatis Mapper Scanner（自動掃描介面並註冊為 Spring Bean） -->
     <bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">
         <property name="basePackage" value="com.digitalwallet.mapper"/>
+        <property name="sqlSessionFactoryBeanName" value="sqlSessionFactory"/>
     </bean>
 
     <!-- Transaction Manager -->
@@ -522,13 +304,13 @@ jwt.expiration=86400000
     <bean id="passwordEncoder"
           class="org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder"/>
 
-    <!-- JWT Utility -->
+    <!-- JWT Utility（setter injection） -->
     <bean id="jwtUtil" class="com.digitalwallet.util.JwtUtil">
         <property name="secret" value="${jwt.secret}"/>
         <property name="expiration" value="${jwt.expiration}"/>
     </bean>
 
-    <!-- Service Beans — setter 注入 -->
+    <!-- Service Beans（全部使用 setter injection） -->
     <bean id="authService" class="com.digitalwallet.service.AuthService">
         <property name="userMapper" ref="userMapper"/>
         <property name="walletMapper" ref="walletMapper"/>
@@ -545,24 +327,30 @@ jwt.expiration=86400000
         <property name="walletMapper" ref="walletMapper"/>
         <property name="transactionMapper" ref="transactionMapper"/>
     </bean>
+
+    <bean id="adminService" class="com.digitalwallet.service.AdminService">
+        <property name="userMapper" ref="userMapper"/>
+        <property name="walletMapper" ref="walletMapper"/>
+        <property name="transactionMapper" ref="transactionMapper"/>
+    </bean>
+
+    <!-- AdminController 也用 XML setter injection -->
+    <bean id="adminController" class="com.digitalwallet.controller.AdminController">
+        <property name="adminService" ref="adminService"/>
+    </bean>
 </beans>
 ```
 
-**為什麼用 `<property name="..." ref="..."/>` 而不是 `@Autowired`：**
-- 這是傳統 Spring XML 配置的核心模式
-- 每個 bean 的依賴關係在 XML 中聲明，一目了然
-- Service 類本身不需要任何 Spring 註解，完全由 XML 裝配
+> **說明**：
+> - `AuthController`、`WalletController`、`TransactionController` 使用 `@Autowired` 註解注入（由 `dispatcher-servlet.xml` 的 `<context:component-scan>` 掃描），不在 applicationContext.xml 中定義。
+> - `AdminController` 使用 setter injection（在 XML 中明確定義 `<bean id="adminController">` 並注入 `<property name="adminService">`），這是為了展示傳統 XML 配置方式如何手動注入 Controller。
+> - MyBatis Mapper 介面由 `MapperScannerConfigurer` 自動掃描註冊，ref 名稱由介面名稱的小駝峰自動生成（`UserMapper` → `userMapper`）。
+> - `<tx:annotation-driven>` 啟用 `@Transactional` 註解支援，讓 Service 層可以使用宣告式交易。
 
-**為什麼 `mapUnderscoreToCamelCase` + `resultMap` 雙層：**
-- 全域配置作為安全網
-- Mapper XML 中的顯式 `resultMap` 更明確
-- 兩層一起確保 DB 的 `password_hash` → Java 的 `passwordHash` 等所有映射正確
-
-#### dispatcher-servlet.xml — Web Context
+**dispatcher-servlet.xml — Web Context 配置**
 
 ```xml
-<beans xmlns="http://www.springframework.org/schema/beans"
-       xmlns:mvc="http://www.springframework.org/schema/mvc"
+<beans xmlns:mvc="http://www.springframework.org/schema/mvc"
        xmlns:context="http://www.springframework.org/schema/context">
 
     <mvc:annotation-driven/>
@@ -570,35 +358,44 @@ jwt.expiration=86400000
 </beans>
 ```
 
-**為什麼只掃描 controller 包：**
-- Service / Mapper 已在 Root Context 中定義
-- DispatcherServlet 只負責 Web 層（Controller + ExceptionHandler）
-- 分層掃描避免 bean 重複建立
+> `<mvc:annotation-driven>` 註冊 `RequestMappingHandlerMapping`、`RequestMappingHandlerAdapter`、`HttpMessageConverter`（含 Jackson JSON 轉換）等 MVC 基礎設施。`<context:component-scan>` 掃描 `@RestController` 並自動註冊為 Bean。
 
-#### spring-security.xml — Stateless JWT 安全配置
+---
+
+### 模式 3：Spring Security XML（spring-security.xml）
 
 ```xml
 <beans:beans xmlns="http://www.springframework.org/schema/security"
              xmlns:beans="http://www.springframework.org/schema/beans">
 
-    <http auto-config="false" use-expressions="true"
+    <http auto-config="false"
+          use-expressions="true"
           create-session="stateless"
           entry-point-ref="restAuthEntryPoint">
+
         <csrf disabled="true"/>
         <cors configuration-source-ref="corsConfig"/>
 
+        <!-- URL 授權規則 -->
         <intercept-url pattern="/api/auth/**" access="permitAll()"/>
+        <intercept-url pattern="/api/admin/**" access="hasAuthority('ROLE_ADMIN')"/>
         <intercept-url pattern="/api/**" access="isAuthenticated()"/>
 
+        <!-- 自訂 JWT Filter，插入到 PRE_AUTH_FILTER 之前 -->
         <custom-filter ref="jwtAuthFilter" before="PRE_AUTH_FILTER"/>
     </http>
 
     <authentication-manager/>
 
+    <!-- 401 → JSON -->
     <beans:bean id="restAuthEntryPoint"
                 class="com.digitalwallet.security.RestAuthEntryPoint"/>
+
+    <!-- CORS -->
     <beans:bean id="corsConfig"
                 class="com.digitalwallet.security.CorsConfig"/>
+
+    <!-- JWT Filter -->
     <beans:bean id="jwtAuthFilter"
                 class="com.digitalwallet.security.JwtAuthFilter">
         <beans:property name="jwtUtil" ref="jwtUtil"/>
@@ -606,19 +403,163 @@ jwt.expiration=86400000
 </beans:beans>
 ```
 
-**為什麼 `create-session="stateless"`：**
-- REST API + JWT 不應使用 Server-side Session
-- 每次請求都從 JWT 驗證身份
-- 對應 Spring Boot 的 `SessionCreationPolicy.STATELESS`
+> **說明**：
+> - `create-session="stateless"`：禁用 HTTP Session，每個請求都透過 JWT 獨立認證。這是 RESTful API 的標準做法。
+> - `<csrf disabled="true"/>`：JWT 本身就是 CSRF 防護機制（因為瀏覽器不會自動附加 Authorization header），禁用 Spring Security 內建的 CSRF token 機制以免干擾。
+> - `intercept-url` 的順序很重要：先匹配 `/api/auth/**`（公開），再匹配 `/api/admin/**`（需 ADMIN），最後 `/api/**`（僅需登入）。
+> - `<custom-filter ref="jwtAuthFilter" before="PRE_AUTH_FILTER"/>`：將 JwtAuthFilter 插入到 Spring Security filter chain 中 `PRE_AUTH_FILTER` 之前，讓 JWT 解析在認證流程之前執行。
+> - `<authentication-manager/>` 是空元素，因為我們不使用 Spring Security 內建的 `UserDetailsService`，而是用 JWT Filter 手動設置 `SecurityContext`。
 
 ---
 
-### 模式 4：Entity 與 DTO
-
-#### Entity（對應資料庫欄位）
+### 模式 4：JWT（JwtUtil.java）
 
 ```java
-// User.java
+package com.digitalwallet.util;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
+
+import java.security.Key;
+import java.util.Date;
+
+public class JwtUtil {
+
+    private String secret;
+    private long expiration;
+
+    // setter injection — 沒有 Lombok，手寫 setter
+    public void setSecret(String secret) { this.secret = secret; }
+    public void setExpiration(long expiration) { this.expiration = expiration; }
+
+    private Key getSigningKey() {
+        return Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret));
+    }
+
+    public String generateToken(Long userId, String username, String role) {
+        Date now = new Date();
+        return Jwts.builder()
+                .setSubject(String.valueOf(userId))
+                .claim("username", username)
+                .claim("role", role)          // 將 role 寫入 JWT payload
+                .setIssuedAt(now)
+                .setExpiration(new Date(now.getTime() + expiration))
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    public Long extractUserId(String token) {
+        return Long.parseLong(parseClaims(token).getSubject());
+    }
+
+    public String extractRole(String token) {
+        return parseClaims(token).get("role", String.class);
+    }
+
+    public boolean isTokenValid(String token) {
+        if (token == null || token.isEmpty()) return false;
+        try {
+            parseClaims(token);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private Claims parseClaims(String token) {
+        return Jwts.parserBuilder()
+                .setSigningKey(getSigningKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+    }
+}
+```
+
+> **說明**：
+> - `secret` 和 `expiration` 兩個屬性由 `applicationContext.xml` 中的 `<property>` 注入值（來自 `jwt.properties`）。這是傳統 Spring XML setter injection 模式。
+> - `generateToken` 接受 `role` 參數，將 role 作為 JWT claim 寫入。這樣後續 Filter 可以直接從 JWT 讀取 role，無需查詢資料庫。
+> - 使用 jjwt 0.11.x API（`Jwts.builder()` / `Jwts.parserBuilder()`），非新版 0.12.x 的 `Jwts.SIG.HS256` API。
+> - `isTokenValid` 捕獲所有例外（過期、簽名無效、格式錯誤），統一返回 false。
+
+---
+
+### 模式 5：JWT Filter（JwtAuthFilter.java）
+
+```java
+package com.digitalwallet.security;
+
+import com.digitalwallet.util.JwtUtil;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+
+import java.io.IOException;
+import java.util.Collections;
+
+public class JwtAuthFilter extends OncePerRequestFilter {
+
+    private JwtUtil jwtUtil;
+
+    public void setJwtUtil(JwtUtil jwtUtil) { this.jwtUtil = jwtUtil; }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain chain) throws ServletException, IOException {
+        String header = request.getHeader("Authorization");
+
+        if (header != null && header.startsWith("Bearer ")) {
+            String token = header.substring(7);
+
+            if (jwtUtil.isTokenValid(token)) {
+                Long userId = jwtUtil.extractUserId(token);
+                String role = jwtUtil.extractRole(token);
+                if (role == null) role = "ROLE_USER";
+                UsernamePasswordAuthenticationToken auth =
+                        new UsernamePasswordAuthenticationToken(userId, null,
+                                Collections.singletonList(
+                                    new SimpleGrantedAuthority(role)));
+                SecurityContextHolder.getContext().setAuthentication(auth);
+            }
+        }
+
+        chain.doFilter(request, response);
+    }
+}
+```
+
+> **說明**：
+> - 繼承 `OncePerRequestFilter`：保證每個請求只執行一次過濾（Spring Security filter chain 會自動管理）。
+> - 從 `Authorization: Bearer <token>` header 提取 JWT，驗證後將使用者資訊放入 `SecurityContext`。
+> - `principal` 設置為 `Long userId`（不是 `UserDetails` 物件），Controller 層可以透過 `(Long) auth.getPrincipal()` 直接取得 userId。
+> - `SimpleGrantedAuthority(role)` 讓 `hasAuthority('ROLE_ADMIN')` 可以正常工作。role 來自 JWT claim，格式如 `ROLE_USER`、`ROLE_ADMIN`、`ROLE_DISABLED`。
+> - Filter 不會對驗證失敗的請求返回 401 —— 它只是不設置 Authentication。真正的 401 由 `RestAuthEntryPoint` 處理（當請求需要 auth 但 SecurityContext 中沒有 Authentication 時觸發）。
+
+---
+
+### 模式 6：Entity / Model / DTO（無 Lombok 風格的 DTO）
+
+本專案混合了兩種風格：
+- **使用 Lombok 的檔案**：Entity 層（`User.java`、`Wallet.java`、`Transaction.java`）使用 `@Data`；基本 DTO（`UserDTO.java`、`WalletDTO.java`、`TransactionDTO.java`、`LoginRequest.java`、`LoginResponse.java`、`TransferRequest.java`、`ApiResponse.java`）使用 `@Data`、`@Builder` 等；`AppException.java` 使用 `@Getter`。
+- **不使用 Lombok 的檔案**：Admin 相關 DTO（`AdminTransactionDTO.java`、`TransactionStatsDTO.java`、`DailyVolumeDTO.java`、`UserDetailDTO.java`、`PaginatedResponse.java`）全部手寫 getter/setter。
+
+**Entity 例子 — User.java（使用 Lombok）**
+
+```java
+package com.digitalwallet.model;
+
+import lombok.Data;
+import java.time.LocalDateTime;
+
 @Data
 public class User {
     private Long id;
@@ -627,244 +568,127 @@ public class User {
     private String role;
     private LocalDateTime createdAt;
 }
+```
 
-// Wallet.java — 含樂觀鎖 version 欄位
-@Data
-public class Wallet {
-    private Long id;
-    private Long userId;
-    private String currency;
-    private BigDecimal balance;    // NUMERIC(18,4) → BigDecimal
-    private Integer version;       // 樂觀鎖版本號
-    private LocalDateTime updatedAt;
-}
+**手寫 DTO 例子 — AdminTransactionDTO.java（無 Lombok）**
 
-// Transaction.java
-@Data
-public class Transaction {
+```java
+package com.digitalwallet.model;
+
+import java.math.BigDecimal;
+import java.sql.Timestamp;
+
+public class AdminTransactionDTO {
     private Long id;
     private Long fromWalletId;
     private Long toWalletId;
     private BigDecimal amount;
     private String txType;
     private String status;
-    private LocalDateTime createdAt;
-}
-```
+    private Timestamp createdAt;
+    private String fromUsername;
+    private String toUsername;
 
-**為什麼 `BigDecimal` 而不是 `double`：**
-- 金額不能用浮點數，會有精度問題
-- `NUMERIC(18,4)` 必須對應 `BigDecimal`
+    public AdminTransactionDTO() {}
 
-#### DTO（API 輸入/輸出）
-
-```java
-// ApiResponse.java — 統一 JSON envelope
-@Data
-@AllArgsConstructor
-public class ApiResponse {
-    private String status;
-    private String message;
-    public static ApiResponse success(String msg) { return new ApiResponse("SUCCESS", msg); }
-    public static ApiResponse error(String msg) { return new ApiResponse("ERROR", msg); }
-}
-
-// LoginRequest.java
-@Data
-public class LoginRequest {
-    @NotBlank private String username;
-    @NotBlank private String password;
-}
-
-// LoginResponse.java
-@Data @AllArgsConstructor
-public class LoginResponse {
-    private String token;
-    private UserDTO user;
-}
-
-// TransferRequest.java
-@Data
-public class TransferRequest {
-    @NotBlank private String toUsername;
-    @NotNull private BigDecimal amount;
-}
-```
-
-**為什麼 DTO 不含 `passwordHash`：**
-- 安全紅線：敏感欄位絕不透過 API 返回
-- 對應 Spring Boot 版的 `UserDTO`（不含 `passwordHash`）vs `User` entity（含 `passwordHash`）
-
----
-
-### 模式 5：MyBatis Mapper（Java interface + XML SQL）
-
-```java
-// UserMapper.java — interface
-public interface UserMapper {
-    void insert(User user);
-    User findByUsername(@Param("username") String username);
-}
-
-// WalletMapper.java
-public interface WalletMapper {
-    void insert(Wallet wallet);
-    Wallet findByUserId(@Param("userId") Long userId);
-    int deductBalance(@Param("userId") Long userId,
-                      @Param("amount") BigDecimal amount,
-                      @Param("version") Integer version);
-    int addBalance(@Param("userId") Long userId,
-                   @Param("amount") BigDecimal amount);
-}
-
-// TransactionMapper.java
-public interface TransactionMapper {
-    void insert(Transaction transaction);
-    List<Transaction> findByWalletId(@Param("walletId") Long walletId);
-}
-```
-
-**為什麼 interface 沒有實現類：**
-- MyBatis 用 JDK 動態代理在運行時自動生成實現
-- `MapperScannerConfigurer` 掃描 `com.digitalwallet.mapper` 包
-- 每個 interface 對應一個 mapper XML 檔案
-
-```xml
-<!-- UserMapper.xml — 顯式 resultMap + 顯式欄位列表 -->
-<mapper namespace="com.digitalwallet.mapper.UserMapper">
-    <resultMap id="userMap" type="com.digitalwallet.model.User">
-        <id property="id" column="id"/>
-        <result property="passwordHash" column="password_hash"/>
-        <result property="createdAt" column="created_at"/>
-    </resultMap>
-
-    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO users(username, password_hash, role)
-        VALUES(#{username}, #{passwordHash}, #{role})
-    </insert>
-
-    <select id="findByUsername" resultMap="userMap">
-        SELECT id, username, password_hash, role, created_at
-        FROM users WHERE username = #{username}
-    </select>
-</mapper>
-
-<!-- WalletMapper.xml — 樂觀鎖扣款 -->
-<mapper namespace="com.digitalwallet.mapper.WalletMapper">
-    <resultMap id="walletMap" type="com.digitalwallet.model.Wallet">
-        <result property="userId" column="user_id"/>
-        <result property="updatedAt" column="updated_at"/>
-    </resultMap>
-
-    <update id="deductBalance">
-        UPDATE wallets
-        SET balance = balance - #{amount},
-            version = version + 1,
-            updated_at = NOW()
-        WHERE user_id = #{userId} AND version = #{version}
-    </update>
-</mapper>
-```
-
-**為什麼用 `resultMap` 而不是 `resultType`：**
-- 顯式定義欄位對應，schema 變動時更容易排查
-- 搭配 `mapUnderscoreToCamelCase` 提供雙層安全保障
-- 不用 `SELECT *`，每個查詢都明確列出所需欄位
-
-**為什麼 `deductBalance` 的 WHERE 帶 version：**
-- 樂觀鎖：讀 wallet 時一併讀 version → UPDATE 時比對
-- 如果 version 已變（被其他請求更新），`affected rows == 0` → 409
-
----
-
-### 模式 6：JWT 工具 + 過濾器
-
-#### JwtUtil.java
-
-```java
-public class JwtUtil {
-    private String secret;
-    private long expiration;
-    // XML setter 注入
-    public void setSecret(String secret) { this.secret = secret; }
-    public void setExpiration(long expiration) { this.expiration = expiration; }
-
-    public String generateToken(Long userId, String username) {
-        return Jwts.builder()
-                .setSubject(String.valueOf(userId))
-                .claim("username", username)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expiration))
-                .signWith(Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret)),
-                          SignatureAlgorithm.HS256)
-                .compact();
+    public AdminTransactionDTO(Long id, Long fromWalletId, Long toWalletId,
+                               BigDecimal amount, String txType, String status,
+                               Timestamp createdAt, String fromUsername,
+                               String toUsername) {
+        this.id = id;
+        this.fromWalletId = fromWalletId;
+        this.toWalletId = toWalletId;
+        this.amount = amount;
+        this.txType = txType;
+        this.status = status;
+        this.createdAt = createdAt;
+        this.fromUsername = fromUsername;
+        this.toUsername = toUsername;
     }
 
-    public boolean isTokenValid(String token) {
-        try { parseClaims(token); return true; }
-        catch (Exception e) { return false; }
-    }
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public Long getFromWalletId() { return fromWalletId; }
+    public void setFromWalletId(Long fromWalletId) { this.fromWalletId = fromWalletId; }
+
+    public Long getToWalletId() { return toWalletId; }
+    public void setToWalletId(Long toWalletId) { this.toWalletId = toWalletId; }
+
+    public BigDecimal getAmount() { return amount; }
+    public void setAmount(BigDecimal amount) { this.amount = amount; }
+
+    public String getTxType() { return txType; }
+    public void setTxType(String txType) { this.txType = txType; }
+
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+
+    public Timestamp getCreatedAt() { return createdAt; }
+    public void setCreatedAt(Timestamp createdAt) { this.createdAt = createdAt; }
+
+    public String getFromUsername() { return fromUsername; }
+    public void setFromUsername(String fromUsername) { this.fromUsername = fromUsername; }
+
+    public String getToUsername() { return toUsername; }
+    public void setToUsername(String toUsername) { this.toUsername = toUsername; }
 }
 ```
 
-**為什麼無 `@Component`，用 setter 注入：**
-- 這是傳統 Spring XML 配置的核心風格
-- 依賴關係在 `applicationContext.xml` 的 `<bean>` 中宣告，不需要任何 Spring 註解
-
-#### JwtAuthFilter.java + RestAuthEntryPoint.java
+**手寫 DTO 例子 — PaginatedResponse.java（泛型分頁）**
 
 ```java
-// JwtAuthFilter.java
-public class JwtAuthFilter extends OncePerRequestFilter {
-    private JwtUtil jwtUtil;
-    public void setJwtUtil(JwtUtil jwtUtil) { this.jwtUtil = jwtUtil; }
+package com.digitalwallet.model;
 
-    @Override
-    protected void doFilterInternal(HttpServletRequest request,
-                                    HttpServletResponse response,
-                                    FilterChain chain) {
-        String header = request.getHeader("Authorization");
-        if (header != null && header.startsWith("Bearer ")) {
-            String token = header.substring(7);
-            if (jwtUtil.isTokenValid(token)) {
-                Long userId = jwtUtil.extractUserId(token);
-                SecurityContextHolder.getContext().setAuthentication(
-                    new UsernamePasswordAuthenticationToken(userId, null, emptyList())
-                );
-            }
-        }
-        chain.doFilter(request, response);
-    }
-}
+import java.util.List;
 
-// RestAuthEntryPoint.java — 401 → JSON
-public class RestAuthEntryPoint implements AuthenticationEntryPoint {
-    @Override
-    public void commence(HttpServletRequest request, HttpServletResponse response,
-                         AuthenticationException e) throws IOException {
-        response.setStatus(401);
-        response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write(
-            "{\"status\":\"ERROR\",\"message\":\"Invalid username or password\"}");
+public class PaginatedResponse<T> {
+    private List<T> data;
+    private int page;
+    private int size;
+    private long total;
+
+    public PaginatedResponse() {}
+
+    public PaginatedResponse(List<T> data, int page, int size, long total) {
+        this.data = data;
+        this.page = page;
+        this.size = size;
+        this.total = total;
     }
+
+    public List<T> getData() { return data; }
+    public void setData(List<T> data) { this.data = data; }
+
+    public int getPage() { return page; }
+    public void setPage(int page) { this.page = page; }
+
+    public int getSize() { return size; }
+    public void setSize(int size) { this.size = size; }
+
+    public long getTotal() { return total; }
+    public void setTotal(long total) { this.total = total; }
 }
 ```
 
-**為什麼 `SecurityContextHolder.getContext().setAuthentication(...)`：**
-- JWT filter 把 userId 設為 SecurityContext 的 principal
-- Controller 從 SecurityContext 獲取當前用戶，不需傳遞 userId 參數
-- IDOR 防護的根本機制
+> **說明**：
+> - Admin 相關 DTO 全部手寫 getter/setter 是為了展示純 Java 風格，讓讀者清楚看到每個欄位的 get/set 邏輯，不依賴 Lombok 的 annotation processor 魔法。
+> - MyBatis 的 `resultMap` 透過 setter 注入查詢結果，因此 DTO 必須有對應的 setter 方法。
+> - 使用無 Lombok 風格時，IDE 的 "find usages" 和重構功能可以直接作用於實際的 getter/setter 方法，而不是 Lombok 生成的隱式方法。
 
 ---
 
 ### 模式 7：Controller 層
 
+**AuthController.java — 混合注入風格**
+
 ```java
-// AuthController.java
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
-    @Autowired private AuthService authService;
+
+    @Autowired
+    private AuthService authService;
 
     @PostMapping("/register")
     public ResponseEntity<ApiResponse> register(@Valid @RequestBody LoginRequest request) {
@@ -875,50 +699,167 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok(authService.login(request));
-    }
-}
-
-// WalletController.java — IDOR 防護
-@RestController
-@RequestMapping("/api/wallets")
-public class WalletController {
-    @Autowired private WalletService walletService;
-
-    @GetMapping
-    public ResponseEntity<WalletDTO> getWallet() {
-        Long userId = (Long) SecurityContextHolder.getContext()
-                .getAuthentication().getPrincipal();
-        return ResponseEntity.ok(walletService.getByUserId(userId));
+        LoginResponse response = authService.login(request);
+        return ResponseEntity.ok(response);
     }
 }
 ```
 
-**為什麼 Controller 用 `@Autowired` 而 Service 不用：**
-- Controller 在 Web Context 中，用 `component-scan` 掃描
-- Service 在 Root Context 中，用 XML `<bean>` 定義
-- 刻意展示兩種配置方式的混用
+> `@Valid` 觸發 Hibernate Validator 對 `LoginRequest` 進行 `@NotBlank` 驗證。驗證失敗時 Spring 自動返回 400。
+
+**WalletController.java — IDOR 防護**
+
+```java
+@RestController
+@RequestMapping("/api/wallets")
+public class WalletController {
+
+    @Autowired
+    private WalletService walletService;
+
+    @GetMapping
+    public ResponseEntity<WalletDTO> getWallet() {
+        Long userId = getCurrentUserId();
+        return ResponseEntity.ok(walletService.getByUserId(userId));
+    }
+
+    private Long getCurrentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return (Long) auth.getPrincipal();
+    }
+}
+```
+
+> `userId` **永遠從 JWT 中提取**（`auth.getPrincipal()`），不從 URL parameter 或 request body 中讀取。這防止了 IDOR（Insecure Direct Object Reference）攻擊 —— 用戶 A 無法查看用戶 B 的錢包。
+
+**TransactionController.java — 轉帳與查詢**
+
+```java
+@RestController
+@RequestMapping("/api/transactions")
+public class TransactionController {
+
+    @Autowired
+    private TransactionService transactionService;
+
+    @PostMapping("/transfer")
+    public ResponseEntity<ApiResponse> transfer(@Valid @RequestBody TransferRequest request) {
+        Long userId = getCurrentUserId();
+        transactionService.transfer(userId, request);
+        return ResponseEntity.ok(ApiResponse.success("Transfer completed successfully"));
+    }
+
+    @GetMapping
+    public ResponseEntity<List<TransactionDTO>> getHistory() {
+        Long userId = getCurrentUserId();
+        return ResponseEntity.ok(transactionService.getHistory(userId));
+    }
+
+    private Long getCurrentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return (Long) auth.getPrincipal();
+    }
+}
+```
+
+**AdminController.java — XML setter injection 風格**
+
+```java
+@RestController
+@RequestMapping("/api/admin")
+public class AdminController {
+
+    private AdminService adminService;
+
+    // 沒有 @Autowired — 依賴由 applicationContext.xml 中的 <property> 注入
+    public void setAdminService(AdminService adminService) { this.adminService = adminService; }
+
+    @GetMapping("/users")
+    public ResponseEntity<PaginatedResponse<UserDTO>> listUsers(
+            @RequestParam(defaultValue = "") String search,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(adminService.listUsers(search, page, size));
+    }
+
+    @GetMapping("/users/{id}")
+    public ResponseEntity<UserDetailDTO> getUserDetail(@PathVariable Long id) {
+        return ResponseEntity.ok(adminService.getUserDetail(id));
+    }
+
+    @PutMapping("/users/{id}/disable")
+    public ResponseEntity<ApiResponse> disableUser(@PathVariable Long id) {
+        adminService.disableUser(id);
+        return ResponseEntity.ok(ApiResponse.success("User disabled successfully"));
+    }
+
+    @PutMapping("/users/{id}/enable")
+    public ResponseEntity<ApiResponse> enableUser(@PathVariable Long id) {
+        adminService.enableUser(id);
+        return ResponseEntity.ok(ApiResponse.success("User enabled successfully"));
+    }
+
+    @GetMapping("/transactions")
+    public ResponseEntity<PaginatedResponse<AdminTransactionDTO>> listTransactions(
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(adminService.listTransactions(username, from, to, page, size));
+    }
+
+    @GetMapping("/transactions/stats")
+    public ResponseEntity<TransactionStatsDTO> getTransactionStats(
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+        return ResponseEntity.ok(adminService.getTransactionStats(from, to));
+    }
+}
+```
+
+> **說明**：
+> - `AdminController` 使用 **setter injection**（沒有 `@Autowired`），依賴由 `applicationContext.xml` 中的 `<bean id="adminController">` 和 `<property name="adminService" ref="adminService"/>` 注入。這是為了展示傳統 XML 配置下如何手動管理 Controller Bean。
+> - 其他三個 Controller 使用 `@Autowired` 註解，由 `dispatcher-servlet.xml` 的 `<context:component-scan>` 自動掃描註冊。這種混用展示了兩種 DI 風格可以在同一專案中共存。
+> - Admin 端點受 `spring-security.xml` 中 `<intercept-url pattern="/api/admin/**" access="hasAuthority('ROLE_ADMIN')"/>` 保護。
 
 ---
 
-### 模式 8：Service 層 — 業務邏輯核心
+### 模式 8：Service 層（全部 setter injection）
+
+所有 Service 類別都使用 **setter injection** 而非 `@Autowired`，與 `applicationContext.xml` 中的 `<property>` 配置對應。
+
+**AuthService.java — 註冊與登入**
 
 ```java
-// AuthService.java
 public class AuthService {
-    // fields + XML setter 注入...
+
+    private UserMapper userMapper;
+    private WalletMapper walletMapper;
+    private PasswordEncoder passwordEncoder;
+    private JwtUtil jwtUtil;
+
+    public void setUserMapper(UserMapper userMapper) { this.userMapper = userMapper; }
+    public void setWalletMapper(WalletMapper walletMapper) { this.walletMapper = walletMapper; }
+    public void setPasswordEncoder(PasswordEncoder passwordEncoder) {
+        this.passwordEncoder = passwordEncoder;
+    }
+    public void setJwtUtil(JwtUtil jwtUtil) { this.jwtUtil = jwtUtil; }
 
     @Transactional
     public void register(LoginRequest request) {
+        String username = request.getUsername();
+        String password = request.getPassword();
+
         User user = new User();
-        user.setUsername(request.getUsername());
-        user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setUsername(username);
+        user.setPasswordHash(passwordEncoder.encode(password));
         user.setRole("ROLE_USER");
 
         try {
             userMapper.insert(user);
-        } catch (DuplicateKeyException e) {
-            throw new DuplicateUsernameException("Username already taken");
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            throw new DuplicateUsernameException("Username '" + username + "' is already taken");
         }
 
         Wallet wallet = new Wallet();
@@ -926,45 +867,88 @@ public class AuthService {
         wallet.setCurrency("USDT");
         wallet.setBalance(BigDecimal.ZERO);
         wallet.setVersion(0);
+
         walletMapper.insert(wallet);
     }
 
     public LoginResponse login(LoginRequest request) {
         User user = userMapper.findByUsername(request.getUsername());
-        if (user == null || !passwordEncoder.matches(
-                request.getPassword(), user.getPasswordHash())) {
+        if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
             throw new AuthenticationException("Invalid username or password");
         }
-        String token = jwtUtil.generateToken(user.getId(), user.getUsername());
-        return new LoginResponse(token, UserDTO.builder()
-                .id(user.getId()).username(user.getUsername())
-                .role(user.getRole()).createdAt(user.getCreatedAt()).build());
+
+        // ROLE_DISABLED 用戶無法登入
+        if ("ROLE_DISABLED".equals(user.getRole())) {
+            throw new AuthenticationException("Invalid username or password");
+        }
+
+        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole());
+
+        UserDTO userDTO = UserDTO.builder()
+                .id(user.getId())
+                .username(user.getUsername())
+                .role(user.getRole())
+                .createdAt(user.getCreatedAt())
+                .build();
+
+        return new LoginResponse(token, userDTO);
     }
 }
+```
 
-// TransactionService.java — 樂觀鎖核心
+> `@Transactional` 確保 `insert(user)` 和 `insert(wallet)` 在一個事務中完成，若任一操作失敗則全部回滾。`DuplicateKeyException` 捕獲 username 唯一約束違反。
+
+**TransactionService.java — 轉帳與樂觀鎖**
+
+```java
 public class TransactionService {
+
+    private UserMapper userMapper;
+    private WalletMapper walletMapper;
+    private TransactionMapper transactionMapper;
+
+    // setter injection
+    public void setUserMapper(UserMapper userMapper) { this.userMapper = userMapper; }
+    public void setWalletMapper(WalletMapper walletMapper) { this.walletMapper = walletMapper; }
+    public void setTransactionMapper(TransactionMapper transactionMapper) {
+        this.transactionMapper = transactionMapper;
+    }
+
     @Transactional
     public void transfer(Long fromUserId, TransferRequest request) {
+        String toUsername = request.getToUsername();
         BigDecimal amount = request.getAmount();
-        if (amount.compareTo(BigDecimal.ZERO) <= 0)
-            throw new IllegalArgumentException("Transfer amount must be greater than zero");
 
-        User toUser = userMapper.findByUsername(request.getToUsername());
-        if (toUser == null) throw new IllegalArgumentException("Recipient not found");
-        if (fromUserId.equals(toUser.getId()))
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Transfer amount must be greater than zero");
+        }
+
+        User toUser = userMapper.findByUsername(toUsername);
+        if (toUser == null) {
+            throw new IllegalArgumentException("Recipient not found: " + toUsername);
+        }
+        Long toUserId = toUser.getId();
+
+        if (fromUserId.equals(toUserId)) {
             throw new IllegalArgumentException("Cannot transfer to yourself");
+        }
 
         Wallet fromWallet = walletMapper.findByUserId(fromUserId);
-        Wallet toWallet = walletMapper.findByUserId(toUser.getId());
-        if (fromWallet.getBalance().compareTo(amount) < 0)
-            throw new InsufficientBalanceException("Insufficient balance");
+        Wallet toWallet = walletMapper.findByUserId(toUserId);
 
-        // 樂觀鎖扣款
+        if (fromWallet.getBalance().compareTo(amount) < 0) {
+            throw new InsufficientBalanceException(
+                "Insufficient balance: " + fromWallet.getBalance() + " < " + amount);
+        }
+
+        // 樂觀鎖：deductBalance 的 WHERE 條件包含 version
         int deducted = walletMapper.deductBalance(fromUserId, amount, fromWallet.getVersion());
-        if (deducted == 0) throw new ConcurrentModificationException("Concurrent modification");
+        if (deducted == 0) {
+            throw new ConcurrentModificationException(
+                "Concurrent modification detected for userId: " + fromUserId);
+        }
 
-        walletMapper.addBalance(toUser.getId(), amount);
+        walletMapper.addBalance(toUserId, amount);
 
         Transaction tx = new Transaction();
         tx.setFromWalletId(fromWallet.getId());
@@ -977,222 +961,762 @@ public class TransactionService {
 }
 ```
 
-**為什麼 `@Transactional` 能在傳統 Spring MVC 中生效：**
-- `applicationContext.xml` 中有 `<tx:annotation-driven>`
-- Spring AOP 在運行時為標記了 `@Transactional` 的方法創建代理
-- 必須是 public 方法才生效
+> 轉帳步驟：1) 驗證金額為正；2) 查找收款人；3) 檢查不能轉給自己；4) 檢查餘額充足；5) 樂觀鎖扣款（`WHERE version = ?`）；6) 若扣款行數為 0，表示並發衝突，拋出 `ConcurrentModificationException`；7) 收款方加款；8) 記錄交易。
+
+**AdminService.java — 管理功能**
+
+```java
+public class AdminService {
+
+    private UserMapper userMapper;
+    private WalletMapper walletMapper;
+    private TransactionMapper transactionMapper;
+
+    private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd");
+
+    // setter injection
+    public void setUserMapper(UserMapper userMapper) { this.userMapper = userMapper; }
+    public void setWalletMapper(WalletMapper walletMapper) { this.walletMapper = walletMapper; }
+    public void setTransactionMapper(TransactionMapper transactionMapper) {
+        this.transactionMapper = transactionMapper;
+    }
+
+    public PaginatedResponse<UserDTO> listUsers(String search, int page, int size) {
+        if (page < 1) page = 1;
+        if (size < 1) size = 20;
+        if (size > 100) size = 100;
+
+        int offset = (page - 1) * size;
+        List<User> users = userMapper.findAllWithPagination(search, offset, size);
+        int total = userMapper.countAll(search);
+
+        List<UserDTO> userDTOs = users.stream()
+                .map(u -> {
+                    UserDTO dto = new UserDTO();
+                    dto.setId(u.getId());
+                    dto.setUsername(u.getUsername());
+                    dto.setRole(u.getRole());
+                    dto.setCreatedAt(u.getCreatedAt());
+                    return dto;
+                })
+                .collect(Collectors.toList());
+
+        PaginatedResponse<UserDTO> response = new PaginatedResponse<>();
+        response.setData(userDTOs);
+        response.setPage(page);
+        response.setSize(size);
+        response.setTotal(total);
+        return response;
+    }
+
+    public UserDetailDTO getUserDetail(Long userId) {
+        User user = userMapper.findById(userId);
+        if (user == null) {
+            throw new WalletNotFoundException("User not found: " + userId);
+        }
+
+        Wallet wallet = walletMapper.findByUserId(userId);
+        List<Transaction> recentTxns = transactionMapper.findRecentByWalletId(
+                wallet != null ? wallet.getId() : null, 5);
+
+        // 手動轉換（無 Lombok builder）
+        List<TransactionDTO> txnDTOs = recentTxns.stream()
+                .map(t -> {
+                    TransactionDTO dto = new TransactionDTO();
+                    dto.setId(t.getId());
+                    dto.setFromWalletId(t.getFromWalletId());
+                    dto.setToWalletId(t.getToWalletId());
+                    dto.setAmount(t.getAmount());
+                    dto.setTxType(t.getTxType());
+                    dto.setStatus(t.getStatus());
+                    dto.setCreatedAt(t.getCreatedAt());
+                    return dto;
+                })
+                .collect(Collectors.toList());
+
+        WalletDTO walletDTO = null;
+        if (wallet != null) {
+            walletDTO = new WalletDTO();
+            walletDTO.setId(wallet.getId());
+            walletDTO.setUserId(wallet.getUserId());
+            walletDTO.setCurrency(wallet.getCurrency());
+            walletDTO.setBalance(wallet.getBalance());
+            walletDTO.setVersion(wallet.getVersion());
+            walletDTO.setUpdatedAt(wallet.getUpdatedAt());
+        }
+
+        UserDetailDTO detailDTO = new UserDetailDTO();
+        detailDTO.setId(user.getId());
+        detailDTO.setUsername(user.getUsername());
+        detailDTO.setRole(user.getRole());
+        Timestamp createdAt = user.getCreatedAt() != null ? Timestamp.valueOf(user.getCreatedAt()) : null;
+        detailDTO.setCreatedAt(createdAt);
+        detailDTO.setWallet(walletDTO);
+        detailDTO.setRecentTransactions(txnDTOs);
+        return detailDTO;
+    }
+
+    public void disableUser(Long userId) {
+        User user = userMapper.findById(userId);
+        if (user == null) throw new WalletNotFoundException("User not found: " + userId);
+        userMapper.updateRole(userId, "ROLE_DISABLED");
+    }
+
+    public void enableUser(Long userId) {
+        User user = userMapper.findById(userId);
+        if (user == null) throw new WalletNotFoundException("User not found: " + userId);
+        userMapper.updateRole(userId, "ROLE_USER");
+    }
+
+    // listTransactions(), getTransactionStats() — 見原始碼
+}
+```
+
+> AdminService 中的 Entity → DTO 轉換全部使用手動 setter 賦值（`dto.setId(u.getId())` 等），不使用 MapStruct 或 ModelMapper，目的在展示最傳統的 DTO 轉換方式。
 
 ---
 
-### 模式 9：GlobalExceptionHandler + 樂觀鎖原理
+### 模式 9：MyBatis Mapper（Java 介面 + XML）
 
-#### GlobalExceptionHandler.java
+**UserMapper.java**
+
+```java
+package com.digitalwallet.mapper;
+
+import com.digitalwallet.model.User;
+import org.apache.ibatis.annotations.Param;
+
+import java.util.List;
+
+public interface UserMapper {
+    void insert(User user);
+    User findByUsername(@Param("username") String username);
+    User findById(@Param("id") Long id);
+    List<User> findAllWithPagination(@Param("search") String search,
+                                     @Param("offset") int offset,
+                                     @Param("limit") int limit);
+    int countAll(@Param("search") String search);
+    int updateRole(@Param("id") Long id, @Param("role") String role);
+}
+```
+
+> 所有參數使用 `@Param` 註解，確保 XML 中可以透過 `#{paramName}` 引用。MyBatis 3.0+ 對單一參數不需要 `@Param`，但為了可讀性全部顯式標註。
+
+**UserMapper.xml**
+
+```xml
+<mapper namespace="com.digitalwallet.mapper.UserMapper">
+
+    <resultMap id="userMap" type="com.digitalwallet.model.User">
+        <id property="id" column="id"/>
+        <result property="username" column="username"/>
+        <result property="passwordHash" column="password_hash"/>
+        <result property="role" column="role"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO users(username, password_hash, role)
+        VALUES(#{username}, #{passwordHash}, #{role})
+    </insert>
+
+    <select id="findByUsername" resultMap="userMap">
+        SELECT id, username, password_hash, role, created_at
+        FROM users WHERE username = #{username}
+    </select>
+
+    <select id="findAllWithPagination" resultMap="userMap">
+        SELECT id, username, role, created_at
+        FROM users
+        <where>
+            <if test="search != null and search != ''">
+                username ILIKE '%' || #{search} || '%'
+            </if>
+        </where>
+        ORDER BY id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAll" resultType="int">
+        SELECT COUNT(*)
+        FROM users
+        <where>
+            <if test="search != null and search != ''">
+                username ILIKE '%' || #{search} || '%'
+            </if>
+        </where>
+    </select>
+
+    <update id="updateRole">
+        UPDATE users SET role = #{role} WHERE id = #{id}
+    </update>
+</mapper>
+```
+
+**WalletMapper.xml — 樂觀鎖扣款**
+
+```xml
+<mapper namespace="com.digitalwallet.mapper.WalletMapper">
+
+    <resultMap id="walletMap" type="com.digitalwallet.model.Wallet">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="currency" column="currency"/>
+        <result property="balance" column="balance"/>
+        <result property="version" column="version"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <!-- 樂觀鎖：WHERE 條件包含 version -->
+    <update id="deductBalance">
+        UPDATE wallets
+        SET balance = balance - #{amount},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE user_id = #{userId} AND version = #{version}
+    </update>
+
+    <update id="addBalance">
+        UPDATE wallets
+        SET balance = balance + #{amount},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE user_id = #{userId}
+    </update>
+</mapper>
+```
+
+> `deductBalance` 的 WHERE 條件包含 `version = #{version}`，MyBatis 返回受影響的行數（0 表示 version 已變，即並發衝突）。這是經典的樂觀鎖實作。
+
+**TransactionMapper.xml — 複雜查詢與 JOIN**
+
+```xml
+<mapper namespace="com.digitalwallet.mapper.TransactionMapper">
+
+    <!-- Admin 查詢用的 resultMap，JOIN 了 users 表取得用戶名 -->
+    <resultMap id="adminTransactionMap"
+               type="com.digitalwallet.model.AdminTransactionDTO">
+        <id property="id" column="id"/>
+        <result property="fromWalletId" column="from_wallet_id"/>
+        <result property="toWalletId" column="to_wallet_id"/>
+        <result property="amount" column="amount"/>
+        <result property="txType" column="tx_type"/>
+        <result property="status" column="status"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="fromUsername" column="from_username"/>
+        <result property="toUsername" column="to_username"/>
+    </resultMap>
+
+    <select id="findAllWithFilters" resultMap="adminTransactionMap">
+        SELECT t.id, t.from_wallet_id, t.to_wallet_id, t.amount,
+               t.tx_type, t.status, t.created_at,
+               fu.username AS from_username, tu.username AS to_username
+        FROM transactions t
+        LEFT JOIN wallets fw ON t.from_wallet_id = fw.id
+        LEFT JOIN users fu ON fw.user_id = fu.id
+        LEFT JOIN wallets tw ON t.to_wallet_id = tw.id
+        LEFT JOIN users tu ON tw.user_id = tu.id
+        <where>
+            <if test="username != null and username != ''">
+                (fu.username ILIKE '%' || #{username} || '%'
+                 OR tu.username ILIKE '%' || #{username} || '%')
+            </if>
+            <if test="fromDate != null">
+                AND t.created_at &gt;= #{fromDate}
+            </if>
+            <if test="toDate != null">
+                AND t.created_at &lt; #{toDate}::date + INTERVAL '1 day'
+            </if>
+        </where>
+        ORDER BY t.created_at DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="getDailyVolume" resultType="com.digitalwallet.model.DailyVolumeDTO">
+        SELECT DATE(created_at) AS date,
+               COUNT(*)::bigint AS count,
+               COALESCE(SUM(amount), 0) AS amount
+        FROM transactions
+        WHERE created_at &gt;= #{fromDate}
+          AND created_at &lt; #{toDate}::date + INTERVAL '1 day'
+        GROUP BY DATE(created_at)
+        ORDER BY date
+    </select>
+</mapper>
+```
+
+> `findAllWithFilters` 展示了 MyBatis 的動態 SQL（`<where>` + `<if>`），根據前端傳遞的篩選條件動態組裝 WHERE 子句。`LEFT JOIN` 從 `transactions` 一路關聯到 `wallets` 再到 `users` 以取得發送方和接收方的用戶名。
+
+**關鍵配置**：`applicationContext.xml` 中的 `mapUnderscoreToCamelCase = true` 已處理欄位名稱的下劃線轉駝峰（例如 `from_wallet_id` → `fromWalletId`），但 `resultMap` 中仍顯式指定 column → property 對應以確保正確性和可讀性。
+
+---
+
+### 模式 10：Exception 處理
+
+**基礎類別 — AppException.java**
+
+```java
+package com.digitalwallet.exception;
+
+import lombok.Getter;
+
+@Getter
+public class AppException extends RuntimeException {
+    private final int statusCode;
+
+    public AppException(int statusCode, String message) {
+        super(message);
+        this.statusCode = statusCode;
+    }
+}
+```
+
+**子類別（全部手寫，無 Lombok）**
+
+| 類別 | HTTP 狀態碼 | 使用場景 |
+|------|-------------|----------|
+| `AuthenticationException` | 401 | 登入失敗、密碼錯誤、帳號被停用 |
+| `WalletNotFoundException` | 404 | 錢包或用戶不存在 |
+| `InsufficientBalanceException` | 400 | 餘額不足 |
+| `ConcurrentModificationException` | 409 | 樂觀鎖衝突（並發轉帳） |
+| `DuplicateUsernameException` | 409 | 用戶名重複註冊 |
+
+```java
+// AuthenticationException.java
+public class AuthenticationException extends AppException {
+    public AuthenticationException(String message) {
+        super(401, message);
+    }
+}
+
+// InsufficientBalanceException.java
+public class InsufficientBalanceException extends AppException {
+    public InsufficientBalanceException(String message) {
+        super(400, message);
+    }
+}
+
+// ConcurrentModificationException.java
+public class ConcurrentModificationException extends AppException {
+    public ConcurrentModificationException(String message) {
+        super(409, message);
+    }
+}
+```
+
+**GlobalExceptionHandler.java**
 
 ```java
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     @ExceptionHandler(AppException.class)
     public ResponseEntity<ApiResponse> handleAppException(AppException e) {
         return ResponseEntity.status(e.getStatusCode())
                 .body(ApiResponse.error(e.getMessage()));
     }
 
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse> handleIllegalArgument(IllegalArgumentException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(e.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse> handleGeneric(Exception e) {
         log.error("Unhandled exception", e);
-        return ResponseEntity.status(500).body(ApiResponse.error("Internal server error"));
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error("Internal server error"));
     }
 }
 ```
 
-**為什麼 `@RestControllerAdvice` 在傳統 Spring MVC 中可用：**
-- `@RestControllerAdvice` 是 Spring MVC 3.2+ 的原生功能，非 Boot 專屬
-- `<mvc:annotation-driven>` 自動啟用
+> 三層例外處理機制：
+> 1. `AppException` 及其子類：根據 statusCode 返回對應 HTTP 狀態碼，訊息直接返回給前端。
+> 2. `IllegalArgumentException`（來自轉帳時的驗證邏輯）：返回 400。
+> 3. `Exception`（未預期的錯誤）：記錄 log，返回通用 500 訊息（不洩漏內部實作細節）。
 
-#### 樂觀鎖三部曲
+---
 
-1. 讀取 wallet 時一併讀取當前 `version`
-2. UPDATE 時帶 `WHERE version = ?` 條件
-3. `affected rows == 0` → 另一個請求先更新了 → 409
+## 5. 資料庫表結構
 
-```xml
-<!-- WalletMapper.xml -->
-<update id="deductBalance">
-    UPDATE wallets
-    SET balance = balance - #{amount}, version = version + 1
-    WHERE user_id = #{userId} AND version = #{version}
-</update>
+資料庫：PostgreSQL 16，database `digital_wallet`
+
+```sql
+-- 1. 用戶表
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'ROLE_USER',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. 錢包表
+CREATE TABLE wallets (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL UNIQUE,
+    currency VARCHAR(10) NOT NULL DEFAULT 'USDT',
+    balance NUMERIC(18,4) NOT NULL DEFAULT 0.0000,
+    version INT NOT NULL DEFAULT 0,            -- 樂觀鎖版本號
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- 3. 交易紀錄表
+CREATE TABLE transactions (
+    id BIGSERIAL PRIMARY KEY,
+    from_wallet_id BIGINT NULL,
+    to_wallet_id BIGINT NULL,
+    amount NUMERIC(18,4) NOT NULL,
+    tx_type VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'SUCCESS',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_transactions_from ON transactions(from_wallet_id);
+CREATE INDEX idx_transactions_to ON transactions(to_wallet_id);
 ```
 
-```java
-int deducted = walletMapper.deductBalance(fromUserId, amount, fromWallet.getVersion());
-if (deducted == 0) {
-    throw new ConcurrentModificationException("Concurrent modification detected");
-}
-```
+**欄位說明**：
+- `users.role`：`ROLE_USER`（一般用戶）、`ROLE_ADMIN`（管理員）、`ROLE_DISABLED`（被停用）
+- `wallets.balance`：`NUMERIC(18,4)` 精確十進制，避免浮點數誤差
+- `wallets.version`：樂觀鎖版本號，每次扣款 +1
+- `transactions.from_wallet_id`：可為 NULL（未來擴展如系統充值）
+- 索引在 `from_wallet_id` 和 `to_wallet_id` 上以加速交易查詢
 
-**對比悲觀鎖：**
-- 悲觀鎖 `SELECT ... FOR UPDATE` — 鎖住行，其他排隊，可能死鎖
-- 樂觀鎖 `WHERE version = ?` — 不鎖，提交時檢查，衝突時讓用戶重試
-- 錢包場景讀多寫少，樂觀鎖更合適
+---
 
-## 部署與使用
+## 6. 數據流圖
 
-### 環境需求
-
-| 軟體 | 版本 | 用途 |
-|------|------|------|
-| JDK | 21+ | 編譯與運行 |
-| Maven | 3.9+ | 構建與依賴管理 |
-| Tomcat | 10+ | Servlet 容器（**必須，無內嵌伺服器**） |
-| PostgreSQL | 16 | 資料庫（本機 5433 port） |
-
-### 1. 確認 PostgreSQL
-
-本專案預設連線 `localhost:5433`，資料庫 `digital_wallet`：
-
-```bash
-# 確認 PostgreSQL 正在運行
-psql -h localhost -p 5433 -U postgres -d digital_wallet -c "\dt"
-```
-
-相關配置在：
-- [jdbc.properties](src/main/resources/jdbc.properties) — 資料庫連線
-- [jwt.properties](src/main/resources/jwt.properties) — JWT 密鑰
-
-### 2. 在 IntelliJ IDEA 中配置（推薦）
-
-這是最方便的方式，IntelliJ Ultimate 內建 Tomcat 整合：
-
-**步驟 A — 匯入專案**
-1. `File` → `Open` → 選擇 `digital_wallet_springmvc/` 目錄
-2. IntelliJ 會自動識別 Maven 專案，等待依賴下載完成
-
-**步驟 B — 配置 Tomcat**
-1. `Run` → `Edit Configurations` → `+` → `Tomcat Server` → `Local`
-2. `Application server`：點 `Configure`，選擇你的 Tomcat 安裝目錄（如 `C:\apache-tomcat-10.x`）
-3. `Deployment` tab → `+` → `Artifact` → 選 `digital_wallet_springmvc:war exploded`
-4. `Application context`：可設為 `/`（這樣 API 路徑會是 `/api/auth/...`）或留預設 `/digital_wallet_springmvc`
-5. `Server` tab → `HTTP port`：預設 `8080`，如有衝突可改
-6. 點 `OK` 儲存
-
-**步驟 C — 啟動**
-1. 點右上角綠色 Run 按鈕（或 `Shift+F10`）
-2. 等待 Tomcat 啟動，看到 `Server startup in XXXX ms` 即成功
-3. 瀏覽器打開 `http://localhost:8080/api/wallets`，應返回 401 JSON
-
-> 如果你用的是 **IntelliJ Community Edition**（無 Tomcat 整合），請改用下方的「手動部署」方式。
-
-### 3. 手動部署到 Tomcat（命令列）
-
-**步驟 A — 打包 WAR**
-
-```bash
-# 在專案根目錄執行
-mvn clean package
-
-# 成功後 WAR 在 target/digital_wallet_springmvc.war
-```
-
-**步驟 B — 部署**
-
-```bash
-# 複製 WAR 到 Tomcat 的 webapps 目錄
-cp target/digital_wallet_springmvc.war $TOMCAT_HOME/webapps/
-
-# 啟動 Tomcat
-$TOMCAT_HOME/bin/startup.sh       # Linux / macOS
-$TOMCAT_HOME/bin/startup.bat      # Windows
-```
-
-**步驟 C — 確認部署**
-
-Tomcat 啟動後，WAR 會自動解壓到 `webapps/digital_wallet_springmvc/`。API 根路徑為：
+### 6.1 註冊流程
 
 ```
-http://localhost:8080/digital_wallet_springmvc/api/
+Client                    AuthController         AuthService              Mapper                   DB
+  |                             |                     |                      |                      |
+  |--POST /api/auth/register--->|                     |                      |                      |
+  |                             |--request----------->|                      |                      |
+  |                             |                     |--BCrypt.encode------>|                      |
+  |                             |                     |--userMapper.insert-->|--INSERT users------->|
+  |                             |                     |                      |<--user (with id)-----|
+  |                             |                     |--walletMapper.insert->|--INSERT wallets----->|
+  |                             |                     |<--(commit)-----------|                      |
+  |<--201 {success}-------------|<--ApiResponse-------|                      |                      |
 ```
 
-### 4. API 測試流程
+### 6.2 登入流程
 
-以下用 curl 示範完整流程。**如果 IntelliJ 把 context path 設為 `/`，直接把 URL 中的 `/digital_wallet_springmvc` 拿掉。**
-
-```bash
-# 設定 BASE URL（根據你的部署方式調整）
-BASE="http://localhost:8080/digital_wallet_springmvc"
-
-# --- 1. 註冊 alice ---
-curl -X POST "$BASE/api/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"123456"}'
-# → 201 {"status":"SUCCESS","message":"User registered successfully"}
-
-# --- 2. 註冊 bob ---
-curl -X POST "$BASE/api/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{"username":"bob","password":"123456"}'
-# → 201
-
-# --- 3. 登入 alice（取得 token）---
-TOKEN=$(curl -s -X POST "$BASE/api/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"123456"}' \
-  | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
-
-echo "Token: $TOKEN"
-
-# --- 4. 查詢錢包 ---
-curl "$BASE/api/wallets" \
-  -H "Authorization: Bearer $TOKEN"
-# → 200 {"id":1,"userId":...,"currency":"USDT","balance":0.0000,"version":0,...}
-
-# --- 5. 轉帳給 bob（需先手動充值 alice）---
-curl -X POST "$BASE/api/transactions/transfer" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"toUsername":"bob","amount":"50.0000"}'
-# → 200 {"status":"SUCCESS","message":"Transfer completed successfully"}
-
-# --- 6. 查詢交易歷史 ---
-curl "$BASE/api/transactions" \
-  -H "Authorization: Bearer $TOKEN"
-# → 200 [{"id":1,"fromWalletId":...,"toWalletId":...,"amount":...,...}]
+```
+Client                    AuthController         AuthService              JwtUtil               Mapper
+  |                             |                     |                      |                      |
+  |--POST /api/auth/login------>|                     |                      |                      |
+  |                             |--request----------->|                      |                      |
+  |                             |                     |--findByUsername()----|--SELECT user-------->|
+  |                             |                     |<--User---------------|                      |
+  |                             |                     |--BCrypt.matches()    |                      |
+  |                             |                     | (password check)    |                      |
+  |                             |                     |--generateToken()---->|                      |
+  |                             |                     |<--jwt string---------|                      |
+  |<--200 {token, user}---------|<--LoginResponse-----|                      |                      |
 ```
 
-### 5. 前端對接
+### 6.3 轉帳流程（含樂觀鎖）
 
-修改 `digital_wallet_frontend/vite.config.ts` 的 proxy target：
-
-```ts
-// 如果 IntelliJ context path 設為 /
-proxy: { '/api': { target: 'http://localhost:8080', changeOrigin: true } }
-
-// 如果使用預設 context path
-proxy: { '/api': { target: 'http://localhost:8080/digital_wallet_springmvc', changeOrigin: true } }
+```
+Client              TransactionController  TransactionService       WalletMapper            DB
+  |                         |                     |                      |                      |
+  |--POST /transfer-------->|                     |                      |                      |
+  |                         |--transfer(userId,-->|                      |                      |
+  |                         |   request)          |                      |                      |
+  |                         |                     |--validate(amount>0) |                      |
+  |                         |                     |--findByUsername()   |--SELECT to_user------>|
+  |                         |                     |--check balance      |                      |
+  |                         |                     |--deductBalance(     |                      |
+  |                         |                     |  userId, amount,   |                      |
+  |                         |                     |  version)----------->|                      |
+  |                         |                     |                     |--UPDATE wallets      |
+  |                         |                     |                     |  WHERE version=?---->|
+  |                         |                     |                     |<--0 rows (conflict)--|
+  |                         |                     | OR                  |                      |
+  |                         |                     |                     |<--1 row (success)----|
+  |                         |                     | (if 0 rows) throw   |                      |
+  |                         |                     |  ConcurrentModExc   |                      |
+  |                         |                     |--addBalance()------>|--UPDATE wallets +1-->|
+  |                         |                     |--insert(tx)-------->|--INSERT transactions->|
+  |                         |                     |<--(commit)----------|                      |
+  |<--200 {success}---------|<--ApiResponse-------|                      |                      |
 ```
 
-然後啟動前端：
+### 6.4 JWT 認證流程
 
-```bash
-cd digital_wallet_frontend
-npm run dev
+```
+Client              JwtAuthFilter          SecurityContext           Controller
+  |                       |                      |                      |
+  |--GET /api/wallets---->|                      |                      |
+  |  (Authorization:      |                      |                      |
+  |   Bearer eyJhb...)    |                      |                      |
+  |                       |--extract token       |                      |
+  |                       |--jwtUtil.isTokenValid|                      |
+  |                       |--extractUserId       |                      |
+  |                       |--extractRole         |                      |
+  |                       |--setAuthentication-->|                      |
+  |                       |  (userId, role)      |                      |
+  |                       |--chain.doFilter()------------------->|      |
+  |                       |                      |                      |--getCurrentUserId()
+  |                       |                      |                      |--auth.getPrincipal()
+  |                       |                      |                      |--process request
+  |<--200 {wallet data}---|<---------------------|<---------------------|
+```
+
+### 6.5 授權失敗流程（401）
+
+```
+Client              JwtAuthFilter      Spring Security         RestAuthEntryPoint
+  |                       |                   |                      |
+  |--GET /api/admin------>|                   |                      |
+  |  (no token)           |                   |                      |
+  |                       |--no Bearer token  |                      |
+  |                       |--chain.doFilter() |                      |
+  |                       |                   |--check SecurityContext|
+  |                       |                   |  (no Authentication)|
+  |                       |                   |--intercept-url check |
+  |                       |                   |  (needs auth)       |
+  |                       |                   |--commence()-------->|
+  |                       |                   |                      |--write 401 JSON
+  |<--401 {status:"ERROR"}|<------------------|<---------------------|
+  |         message:"..." |                   |                      |
+```
+
+### 6.6 Admin 用戶管理流程
+
+```
+Client (ROLE_ADMIN)    AdminController       AdminService            UserMapper/WalletMapper
+  |                         |                     |                        |
+  |--GET /admin/users------>|                     |                        |
+  |                         |--listUsers()------->|                        |
+  |                         |                     |--findAllWithPagination->|
+  |                         |                     |--countAll()------------>|
+  |                         |                     |--map → UserDTO[]       |
+  |                         |                     |--build PaginatedResponse|
+  |<--200 PaginatedResponse-|<--------------------|                        |
+```
+
+### 6.7 Admin 用戶詳情流程
+
+```
+Client (ROLE_ADMIN)    AdminController       AdminService            Mappers (User/Wallet/Tx)
+  |                         |                     |                        |
+  |--GET /admin/users/5---->|                     |                        |
+  |                         |--getUserDetail(5)-->|                        |
+  |                         |                     |--findById(5)---------->|
+  |                         |                     |--findByUserId(5)------>|
+  |                         |                     |--findRecentByWalletId->|
+  |                         |                     |  (LIMIT 5)            |
+  |                         |                     |--build UserDetailDTO   |
+  |<--200 UserDetailDTO-----|<--------------------|                        |
+```
+
+### 6.8 Admin 停用／啟用用戶流程
+
+```
+Client (ROLE_ADMIN)    AdminController       AdminService            UserMapper
+  |                         |                     |                      |
+  |--PUT /admin/users/5    |                     |                      |
+  |   /disable------------->|                     |                      |
+  |                         |--disableUser(5)---->|                      |
+  |                         |                     |--findById(5)-------->|
+  |                         |                     |  (check exists)     |
+  |                         |                     |--updateRole(        |
+  |                         |                     |  5, "ROLE_DISABLED")->|
+  |                         |                     |                     |--UPDATE users SET
+  |                         |                     |                     |  role='ROLE_DISABLED'
+  |<--200 {success}---------|<--------------------|                     |
+```
+
+### 6.9 Admin 交易統計流程
+
+```
+Client (ROLE_ADMIN)    AdminController       AdminService            TransactionMapper
+  |                         |                     |                      |
+  |--GET /admin/            |                     |                      |
+  |  transactions/stats---->|                     |                      |
+  |                         |--getTransactionStats->                    |
+  |                         |                     |--parse dates        |
+  |                         |                     |--getTransactionCount->|
+  |                         |                     |--getTransactionTotal->|
+  |                         |                     |--getDailyVolume()--->|
+  |                         |                     |--build StatsDTO     |
+  |<--200 TransactionStats--|<--------------------|                      |
 ```
 
 ---
 
+## 7. 啟動方式
 
+### 前置條件
+- Java 21
+- Maven 3.9+
+- PostgreSQL 16，database `digital_wallet`（Port 5433）
+- Tomcat 10.1（Jakarta EE 9+ 版本，非 javax 舊版）
 
-## 六版本程式碼量對比
+### 步驟
 
-| 關注點 | Spring Boot | Spring MVC | Node.js | FastAPI | Laravel | 純 PHP |
-|------|------------|-----------|---------|---------|--------|
-| 配置 | ~15 | **~120** | ~15 | ~10 | ~20 | — |
-| JWT + 安全 | ~60 | ~65 | ~40 | ~50 | ~55 | ~45 |
-| 密碼處理 | ~5 | ~5 | ~3 | ~4 | ~3 | ~3 |
-| 樂觀鎖 + 轉賬 | ~60 | ~65 | ~70 | ~40 | ~45 | ~45 |
-| 異常處理 | ~55 | ~45 | ~20 | ~35 | ~35 | ~35 |
-| API 路由 + Controller | ~40 | ~55 | ~45 | ~30 | ~45 | ~45 |
-| Model/DTO | ~120 | ~120 | ~50 | ~100 | ~50 | ~50 |
-| **總計** | **~375** | **~475** | **~243** | **~286** | **~253** | **~263** |
+**1. 初始化資料庫**
 
-Node.js 版最精簡（~243 行），Spring MVC 版最長（~475 行）。，主要因為 XML 配置（`web.xml` + 4 個 Spring XML ~120 行）和顯式 bean 裝配。Spring Boot 的自動配置幫開發者省去大量 XML 配置工作。
+```bash
+psql -h localhost -p 5433 -U postgres -c "CREATE DATABASE digital_wallet;"
+psql -h localhost -p 5433 -U postgres -d digital_wallet -f digital_wallet/src/main/resources/static/db.sql
+```
+
+**2. 編譯打包**
+
+```bash
+cd digital_wallet_springmvc
+mvn clean package
+```
+
+產出 WAR 檔案：`target/digital_wallet_springmvc.war`
+
+**3. 部署到 Tomcat**
+
+```bash
+cp target/digital_wallet_springmvc.war $TOMCAT_HOME/webapps/digital_wallet_springmvc.war
+$TOMCAT_HOME/bin/startup.sh
+```
+
+應用可在 `http://localhost:8080/digital_wallet_springmvc/` 存取（取決於 WAR 檔名）。
+
+> **注意**：Spring MVC 專案無法直接以 `java -jar` 執行（因為這是 `packaging=war`，沒有 embedded Tomcat）。這是與 Spring Boot JAR 最大的差別：Spring Boot 內嵌 Tomcat，一個 JAR 即可執行；Spring MVC 傳統專案必須將 WAR 部署到外部 Servlet Container（Tomcat 10.1）。
+
+---
+
+## 8. 設計決策問答
+
+### Q1: 為什麼使用 XML 配置而非 annotation？
+
+**A**: 這是 **教育性決策**。Spring Boot 的 annotation + auto-configuration 雖然開發效率高，但掩蓋了 Spring IoC 容器的底層運作機制。透過 XML `<bean>` 定義，開發者可以清楚看到：
+- `DataSource` 如何建立、傳入哪些參數
+- `SqlSessionFactory` 需要哪些依賴（`dataSource`、`mapperLocations`）
+- Service 依賴哪些 Mapper
+- Bean 之間的依賴關係在一個檔案中一目了然
+
+這對於理解 Spring 容器的工作方式（Bean 建立 → 依賴注入 → 生命週期管理）至關重要。
+
+### Q2: 為什麼不使用 Lombok？
+
+**A**: 本專案的 Admin DTO（`AdminTransactionDTO`、`TransactionStatsDTO`、`DailyVolumeDTO`、`UserDetailDTO`、`PaginatedResponse`）全部手寫 getter/setter。這確保：
+- 程式碼完全透明，沒有 annotation processor 生成隱式方法
+- 適合教學：讀者可以直接看到每個屬性的 get/set 實作
+- IDE refactoring 可以直接作用於實體方法
+- 不依賴 IDE 的 Lombok plugin
+
+Entity 層（`User`、`Wallet`、`Transaction`）使用 `@Data` 是為了簡潔，但核心 DTO 層保持純 Java 風格。
+
+### Q3: 為什麼是 WAR 而非 JAR？
+
+**A**: 傳統 Spring MVC 應用部署在外部 Servlet Container（Tomcat）中。WAR（Web Application Archive）是 Java EE/Jakarta EE 標準的 Web 應用打包格式，包含 `WEB-INF/web.xml` 部署描述符。相比之下，Spring Boot 的 executable JAR 內嵌 Tomcat，將 Servlet Container 作為應用的一部分。
+
+### Q4: 為什麼使用 setter injection 而非 constructor injection？
+
+**A**: 這是 XML 配置的歷史慣例。Spring XML `<property>` 標籤對應 Java 的 setter 方法。Setter injection 在傳統 Spring 應用中更常見，因為它能處理循環依賴（雖然不推薦），且 XML 中更容易表達。現代 Spring Boot 推薦 constructor injection（配合 `@Autowired`），但在 XML 配置中，setter injection 是更自然的選擇。
+
+### Q5: 為什麼 DispatcherServlet 與 ContextLoaderListener 分開？
+
+**A**: 這是 Spring MVC 的雙層 Context 架構：
+- **Root Context**（父）：管理 Service、Repository、Security 等全域 Bean
+- **Web Context**（子）：管理 Controller 等 Web 層 Bean
+
+子 Context 可以訪問父 Context 的 Bean（所以 Controller 可以注入 Service），但反過來不行。這種分層確保了關注點分離，讓 Web 層只關注請求處理。
+
+### Q6: 為什麼 `AdminController` 用 XML setter injection，其他 Controller 用 `@Autowired`？
+
+**A**: 刻意混用兩種方式，展示它們可以在同一專案中共存。`dispatcher-servlet.xml` 中的 `<context:component-scan>` 自動掃描 `@RestController` 並透過 `@Autowired` 注入；而 `AdminController` 則在 `applicationContext.xml` 中明確定義，展示傳統的手動 Bean 註冊方式。
+
+---
+
+## 9. 安全紅線
+
+| 紅線 | 實作方式 | 程式位置 |
+|------|----------|----------|
+| **密碼絕不明文儲存** | BCrypt 雜湊，`passwordEncoder.encode(password)` | `AuthService.java:33` |
+| **JWT Secret 不硬編碼** | 從 `jwt.properties` 外部化配置 | `applicationContext.xml:54-57` |
+| **IDOR 防護** | `userId` 永遠從 JWT 的 `auth.getPrincipal()` 提取，不從 URL 參數 | `WalletController.java:20`, `TransactionController.java:24-25` |
+| **樂觀鎖防止雙花** | `deductBalance` 的 WHERE 條件包含 `version`，若 0 rows affected 拋出 409 | `WalletMapper.xml:27-30`, `TransactionService.java:57-60` |
+| **Admin 端點權限控制** | `<intercept-url pattern="/api/admin/**" access="hasAuthority('ROLE_ADMIN')"/>` | `spring-security.xml:21` |
+| **錯誤訊息不洩漏內部資訊** | `GlobalExceptionHandler` 對未知例外只返回 "Internal server error" | `GlobalExceptionHandler.java:30-34` |
+| **Stateless Session** | `create-session="stateless"` 禁用 HTTP Session，每個請求獨立認證 | `spring-security.xml:13` |
+| **停用用戶無法登入** | `AuthService.login()` 檢查 `ROLE_DISABLED` 角色 | `AuthService.java:60-62` |
+
+---
+
+## 10. 常見錯誤
+
+### 錯誤 1：`ClassNotFoundException: jakarta.servlet.Filter`
+
+**原因**：Tomcat 版本不匹配。Spring MVC 6.x 使用 Jakarta EE 9+（`jakarta.servlet.*`），需要 Tomcat 10.1+。Tomcat 9.x 仍使用 `javax.servlet.*`。
+
+**解決方案**：升級到 Tomcat 10.1 或更新版本。
+
+### 錯誤 2：`No mapping for GET /api/wallets`（404）
+
+**原因**：`dispatcher-servlet.xml` 中的 `<context:component-scan>` 未掃描到 Controller，或 Controller 類別不在 `com.digitalwallet.controller` package 下。
+
+**解決方案**：確認 Controller 上有 `@RestController` 和 `@RequestMapping` 註解，且 package 宣告與 `<context:component-scan>` 的 `base-package` 一致。
+
+### 錯誤 3：WAR 部署後無法啟動（`NoClassDefFoundError: org/springframework/web/context/ContextLoaderListener`）
+
+**原因**：Spring 依賴的 JAR 未包含在 WAR 中。
+
+**解決方案**：確認使用 `mvn clean package`（而非 `mvn compile`），Maven 會自動將 `compile` scope 的依賴打包到 `WEB-INF/lib/`。
+
+### 錯誤 4：`NullPointerException` 在 Service 中
+
+**原因**：setter injection 未被執行。可能是 XML 中 `<property>` 名稱與 setter 方法名稱不匹配（`<property name="userMapper">` 對應 `setUserMapper()`，屬性名為 `userMapper`，首字母小寫）。
+
+**解決方案**：檢查 `applicationContext.xml` 中 `<property name="...">` 的值是否與 Service 中 setter 方法名稱對應。
+
+### 錯誤 5：`DuplicateKeyException: duplicate key value violates unique constraint "users_username_key"` 未被捕獲
+
+**原因**：Spring 的 `DataIntegrityViolationException` 和 `DuplicateKeyException` 在不同資料庫驅動下行為可能不同。
+
+**解決方案**：確保 `AuthService.register()` 中的 `catch` 區塊使用 `org.springframework.dao.DuplicateKeyException`（來自 `spring-jdbc`），而非 JDBC driver 原生的例外類別。
+
+### 錯誤 6：樂觀鎖失效（同一時間多筆轉帳成功但餘額不同步）
+
+**原因**：`deductBalance` 的 WHERE 條件中 `version` 參數未正確傳遞，或 Service 層讀取 `version` 後未傳入 Mapper。
+
+**解決方案**：
+1. 確認 `WalletMapper.deductBalance` 的 `@Param("version")` 參數名稱與 XML 中 `#{version}` 一致
+2. 確認 `TransactionService.transfer()` 傳入 `fromWallet.getVersion()`
+3. 在 `psql` 中手動測試：`UPDATE wallets SET balance = balance - 10, version = version + 1 WHERE user_id = 1 AND version = 3;` 查看返回的 affected rows
+
+### 錯誤 7：JWT Token 過期後用戶收到 500 而非 401
+
+**原因**：`JwtUtil.isTokenValid()` 已正確返回 `false`，但 `JwtAuthFilter` 在 token 無效時未拋出例外 —— 這是正確行為。問題可能出在 `GlobalExceptionHandler` 對某種特定 Exception 類別返回了 500。
+
+**解決方案**：確認 `JwtUtil.parseClaims()` 中只 `catch (Exception e)`，將所有 JWT 例外（`ExpiredJwtException`、`MalformedJwtException`、`SignatureException` 等）統一轉換為 `isTokenValid() = false`。
+
+### 錯誤 8：CORS 錯誤（前端無法存取 API）
+
+**原因**：`CorsConfig.java` 返回的 `CorsConfiguration` 中 `allowedOrigins` 可能與前端實際 origin 不匹配，或 `allowedMethods` 缺少 OPTIONS。
+
+**解決方案**：確認 `spring-security.xml` 中有 `<cors configuration-source-ref="corsConfig"/>`，且 `CorsConfig` 的 `setAllowedMethods` 包含 `"OPTIONS"`（瀏覽器 preflight 請求使用）。
+
+---
+
+## 11. 與其他版本對照
+
+| 特性 | Spring MVC (本版) | Spring Boot | Node.js | FastAPI | Laravel | Plain PHP |
+|------|-------------------|-------------|---------|---------|---------|-----------|
+| 配置方式 | XML | annotation + YAML | JS config | Python decorators | PHP config | manual PHP |
+| 依賴注入 | setter / XML | constructor / auto | manual | FastAPI Depends | Laravel Service Container | none |
+| 打包 | WAR (Tomcat) | JAR (embedded) | Node process | uvicorn | PHP-FPM | PHP built-in |
+| Lombok | partial | full | N/A | N/A | N/A | N/A |
+| 開發體驗 | 傳統，verbose | 現代，convention-over-config | 輕量，非同步 | 類型安全，async | 全棧框架 | 最底層，零框架 |
+| 學習價值 | 理解 Spring 底層 | 快速開發 | JS 生態 | Python 生態 | PHP 生態 | HTTP 底層 |
+
+---
+
+> 本專案是 **技術驗證／參考實作**，展示 Spring Boot 出現前的傳統 Spring 開發方式。所有程式碼均為可運行的實作，非概念性偽代碼。歡迎與其他五個後端版本對照閱讀。

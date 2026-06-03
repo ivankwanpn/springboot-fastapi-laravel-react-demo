@@ -1,5 +1,4 @@
 from datetime import datetime
-from decimal import Decimal
 from typing import TypeVar, Generic
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -30,7 +29,7 @@ class AdminTransactionResponse(BaseModel):
     id: int
     from_wallet_id: int | None = Field(alias="fromWalletId", default=None)
     to_wallet_id: int | None = Field(alias="toWalletId", default=None)
-    amount: Decimal
+    amount: float
     tx_type: str = Field(alias="txType")
     status: str
     created_at: datetime = Field(alias="createdAt")
@@ -42,11 +41,11 @@ class DailyVolumeItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     date: str
     count: int
-    amount: Decimal
+    amount: float
 
 
 class TransactionStatsResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     total_transactions: int = Field(alias="totalTransactions")
-    total_amount: Decimal = Field(alias="totalAmount")
+    total_amount: float = Field(alias="totalAmount")
     daily_volume: list[DailyVolumeItem] = Field(alias="dailyVolume")

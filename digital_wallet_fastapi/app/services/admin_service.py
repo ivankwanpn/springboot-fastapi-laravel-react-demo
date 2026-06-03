@@ -55,7 +55,7 @@ async def get_user_detail(session: AsyncSession, user_id: int) -> dict:
     if wallet is not None:
         wallet_dict = {
             "id": wallet.id, "userId": wallet.user_id, "currency": wallet.currency,
-            "balance": str(wallet.balance), "version": wallet.version,
+            "balance": float(wallet.balance), "version": wallet.version,
             "updatedAt": wallet.updated_at.isoformat() if wallet.updated_at else None,
         }
 
@@ -69,7 +69,7 @@ async def get_user_detail(session: AsyncSession, user_id: int) -> dict:
         txs = result.scalars().all()
         recent_tx_list = [{
             "id": tx.id, "fromWalletId": tx.from_wallet_id, "toWalletId": tx.to_wallet_id,
-            "amount": str(tx.amount), "txType": tx.tx_type, "status": tx.status,
+            "amount": float(tx.amount), "txType": tx.tx_type, "status": tx.status,
             "createdAt": tx.created_at.isoformat() if tx.created_at else None,
         } for tx in txs]
 
@@ -189,5 +189,5 @@ async def get_transaction_stats(session: AsyncSession, from_date: date | None, t
     return {
         "totalTransactions": total_tx,
         "totalAmount": total_amt,
-        "dailyVolume": [{"date": str(r.date), "count": r.count, "amount": r.amount} for r in daily_rows],
+        "dailyVolume": [{"date": str(r.date), "count": r.count, "amount": float(r.amount)} for r in daily_rows],
     }
