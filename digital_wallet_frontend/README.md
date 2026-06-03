@@ -43,30 +43,37 @@ digital_wallet_frontend/
     │   ├── api.ts                  #   Axios 實例 + JWT 攔截器 + 401 CustomEvent
     │   ├── authService.ts          #   login()、register()
     │   ├── walletService.ts        #   getWallet()
-    │   └── transactionService.ts   #   transfer()、getTransactionHistory()
+    │   ├── transactionService.ts   #   transfer()、getTransactionHistory()
+    │   └── adminService.ts         #   getUsers()、getAdminTransactions()、getTransactionStats()
     │
     ├── components/
     │   ├── ui/                     # 通用 UI 元件庫
     │   │   ├── Button.tsx          #   variant 枚舉 + isLoading
     │   │   ├── Input.tsx           #   forwardRef + label + error
     │   │   ├── Card.tsx            #   padding 枚舉 + className 合併
-    │   │   ├── Modal.tsx           #   Portal + ESC + backdrop 點擊關閉
+    │   │   ├── Modal.tsx           #   Portal + ESC + backdrop 點擊關閉（onConfirm 可選）
     │   │   ├── Badge.tsx           #   success/warning/info/danger
     │   │   ├── Spinner.tsx         #   SVG 旋轉動畫
     │   │   ├── EmptyState.tsx      #   空狀態（多種圖示）
     │   │   └── ProtectedRoute.tsx  #   路由守衛
     │   │
+    │   ├── charts/
+    │   │   └── BarChart.tsx        #   純 SVG 長條圖（無 npm 依賴）
+    │   │
     │   └── layout/
     │       ├── AppLayout.tsx       #   已登入佈局（Sidebar + Outlet）
     │       ├── AuthLayout.tsx      #   未登入佈局（居中卡片）
-    │       └── Sidebar.tsx         #   側邊欄（導航 + 頭像 + 登出）
+    │       └── Sidebar.tsx         #   側邊欄（導航 + 頭像 + 登出 + 條件式管理員選單）
     │
     └── pages/
         ├── LoginPage.tsx           #   /login — 登錄表單
         ├── RegisterPage.tsx        #   /register — 註冊表單
         ├── DashboardPage.tsx       #   /dashboard — 餘額 + 操作 + 最近 5 筆
         ├── TransferPage.tsx        #   /transfer — 轉賬 + Modal 確認
-        └── TransactionHistoryPage.tsx # /transactions — 歷史 + 過濾 + 統計
+        ├── TransactionHistoryPage.tsx # /transactions — 歷史 + 過濾 + 統計
+        └── admin/
+            ├── UserManagementPage.tsx          # /admin/users — 用戶管理（搜尋、分頁、詳情 Modal、啟用/停用）
+            └── TransactionMonitoringPage.tsx   # /admin/transactions — 平台交易監控（過濾、統計卡、長條圖、分頁）
 ```
 
 ---
@@ -87,8 +94,12 @@ digital_wallet_frontend/
 | 交易方向判斷 (Sent/Received) | [pages/DashboardPage.tsx:28-30](src/pages/DashboardPage.tsx) + [pages/TransactionHistoryPage.tsx:50-63](src/pages/TransactionHistoryPage.tsx) |
 | Modal 二次確認模式 | [pages/TransferPage.tsx](src/pages/TransferPage.tsx) + [components/ui/Modal.tsx](src/components/ui/Modal.tsx) |
 | Button/Input/Card 元件 | [components/ui/](src/components/ui/) |
-| Sidebar 導航 + 登出 | [components/layout/Sidebar.tsx](src/components/layout/Sidebar.tsx) |
+| Sidebar 導航 + 登出 + 條件式管理員選單 | [components/layout/Sidebar.tsx](src/components/layout/Sidebar.tsx) |
 | 路由守衛 | [components/ui/ProtectedRoute.tsx](src/components/ui/ProtectedRoute.tsx) |
+| 管理員用戶管理 (搜尋/分頁/Modal/啟用停用) | [pages/admin/UserManagementPage.tsx](src/pages/admin/UserManagementPage.tsx) |
+| 管理員交易監控 (過濾/統計/長條圖/分頁) | [pages/admin/TransactionMonitoringPage.tsx](src/pages/admin/TransactionMonitoringPage.tsx) |
+| 純 SVG 長條圖 | [components/charts/BarChart.tsx](src/components/charts/BarChart.tsx) |
+| 管理員 API 呼叫 | [services/adminService.ts](src/services/adminService.ts) |
 | Vite proxy (前後端分離) | [vite.config.ts](vite.config.ts) |
 
 ---
@@ -106,9 +117,11 @@ digital_wallet_frontend/
       </AuthLayout>
       <ProtectedRoute>        ← 路由守衛
         <AppLayout>           ← 已登入佈局
-          /dashboard     → DashboardPage
-          /transfer      → TransferPage
-          /transactions  → TransactionHistoryPage
+          /dashboard       → DashboardPage
+          /transfer        → TransferPage
+          /transactions    → TransactionHistoryPage
+          /admin/users     → UserManagementPage (only if role === 'ROLE_ADMIN')
+          /admin/transactions → TransactionMonitoringPage (only if role === 'ROLE_ADMIN')
         </AppLayout>
       </ProtectedRoute>
       /* → Navigate to /dashboard
@@ -1629,6 +1642,250 @@ export default function TransactionHistoryPage() {
 
 ---
 
+### 模式 11：管理員頁面
+
+角色為 `ROLE_ADMIN` 的使用者會在側邊欄看到「Admin」區塊，內含兩個管理頁面。
+
+#### Sidebar.tsx — 條件式管理員選單
+
+```tsx
+// 在 navItems 之後，根據 user.role 動態插入管理員選單
+{user?.role === 'ROLE_ADMIN' && (
+  <>
+    <div className="px-3 pt-4 pb-1">
+      <p className="text-xs font-semibold text-navy-400 uppercase tracking-wider">Admin</p>
+    </div>
+    {adminNavItems.map((item) => { /* ... */ })}
+  </>
+)}
+```
+
+**為什麼用條件渲染而不是 ProtectedRoute：** Sidebar 是 UI 層的控制（看不看得到選單），ProtectedRoute 是路由層的控制（能不能訪問頁面）。兩層都要做：Sidebar 隱藏選單 = 好的 UX；ProtectedRoute 阻擋直接 URL 輸入 = 安全防護。
+
+#### AuthContext.tsx — 加入 `isAdmin` 布林值
+
+```tsx
+interface AuthState {
+  token: string | null;
+  user: User | null;
+  isAuthenticated: boolean;
+  isAdmin: boolean;          // 新增：來自 user.role === 'ROLE_ADMIN'
+  login: (token: string, user: User) => void;
+  logout: () => void;
+}
+```
+
+**為什麼在 Context 層計算 `isAdmin`：** 多個元件（Sidebar、ProtectedRoute、各頁面）都需要判斷管理員權限。在 Context 層一次計算可避免各處重複 `user?.role === 'ROLE_ADMIN'` 的字串比對。
+
+#### adminService.ts — 管理員 API 呼叫
+
+```typescript
+import api from './api';
+import type { PaginatedResponse, AdminTransaction, TransactionStats } from '../types';
+
+export function getUsers(params: { page: number; size: number; search?: string }): Promise<PaginatedResponse<User>> {
+  return api.get('/admin/users', { params }).then((res) => res.data);
+}
+
+export function getUserDetail(userId: number): Promise<UserDetail> {
+  return api.get(`/admin/users/${userId}`).then((res) => res.data);
+}
+
+export function toggleUserStatus(userId: number, enabled: boolean): Promise<void> {
+  return api.put(`/admin/users/${userId}/status`, { enabled }).then((res) => res.data);
+}
+
+export function getAdminTransactions(params: {
+  page: number; size: number; username?: string; startDate?: string; endDate?: string;
+}): Promise<PaginatedResponse<AdminTransaction>> {
+  return api.get('/admin/transactions', { params }).then((res) => res.data);
+}
+
+export function getTransactionStats(params?: {
+  startDate?: string; endDate?: string;
+}): Promise<TransactionStats> {
+  return api.get('/admin/transactions/stats', { params }).then((res) => res.data);
+}
+```
+
+**為什麼用 `params` 物件傳參：** 管理員 API 需要分頁和過濾參數，Axios 的 `params` 選項會自動序列化成 query string（`?page=0&size=10&search=foo`），此模式便於擴充過濾條件。
+
+#### UserManagementPage.tsx — 用戶管理 (`/admin/users`)
+
+核心功能：
+- **搜尋** — 輸入框即時過濾用戶名（debounce 300ms 後呼叫 API）
+- **分頁** — 上一頁/下一頁按鈕 + 「Page X of Y」顯示
+- **角色 Badge** — `ROLE_ADMIN` 用 info Badge，`ROLE_USER` 用 success Badge
+- **用戶詳情 Modal** — 點擊用戶列可查看錢包餘額 + 最近交易
+- **啟用/停用** — toggle 按鈕呼叫 `toggleUserStatus()` 後刷新列表
+
+```tsx
+// 核心狀態結構
+const [users, setUsers] = useState<User[]>([]);
+const [page, setPage] = useState(0);
+const [totalPages, setTotalPages] = useState(0);
+const [search, setSearch] = useState('');
+const [selectedUser, setSelectedUser] = useState<UserDetail | null>(null);
+const [isModalOpen, setIsModalOpen] = useState(false);
+
+// 搜尋 debounce：用戶停止輸入 300ms 後才發 API
+useEffect(() => {
+  const timer = setTimeout(() => {
+    setPage(0);
+    fetchUsers(0);
+  }, 300);
+  return () => clearTimeout(timer);
+}, [search]);
+```
+
+**為什麼用 debounce 而不是即時搜尋：** 避免每次 keystroke 都發 API。300ms 是慣用值 — 足夠快的響應、足夠省的請求。
+
+#### TransactionMonitoringPage.tsx — 交易監控 (`/admin/transactions`)
+
+核心功能：
+- **過濾** — 用戶名、開始日期、結束日期
+- **統計卡** — 總交易數、總交易量、日均交易量（從 `TransactionStats` API 取得）
+- **每日交易量長條圖** — 純 SVG 無 npm 依賴（使用 `<BarChart>` 元件）
+- **分頁** — 與用戶管理相同的分頁模式
+
+```tsx
+// 統計卡
+<Card>
+  <p className="text-xs text-navy-300">Total Transactions</p>
+  <p className="text-2xl font-mono font-bold text-white">{stats.totalTransactions}</p>
+</Card>
+<Card>
+  <p className="text-xs text-navy-300">Total Volume</p>
+  <p className="text-2xl font-mono font-bold text-white">{stats.totalVolume.toFixed(2)} USDT</p>
+</Card>
+<Card>
+  <p className="text-xs text-navy-300">Daily Average</p>
+  <p className="text-2xl font-mono font-bold text-white">{stats.dailyAverage.toFixed(2)} USDT</p>
+</Card>
+```
+
+**為什麼統計卡和交易列表分開請求：** 統計需要彙總資料（`/admin/transactions/stats`）、列表需要分頁（`/admin/transactions`）。分離端點讓後端用不同的 SQL 查詢優化（統計用 GROUP BY、列表用 LIMIT/OFFSET）。
+
+#### BarChart.tsx — 純 SVG 長條圖
+
+```tsx
+interface BarChartProps {
+  data: { label: string; value: number }[];
+  height?: number;
+  barColor?: string;
+}
+
+export default function BarChart({ data, height = 200, barColor = '#10b981' }: BarChartProps) {
+  const maxValue = Math.max(...data.map((d) => d.value), 1);
+
+  return (
+    <svg width="100%" height={height} viewBox={`0 0 ${data.length * 60} ${height}`}>
+      {data.map((d, i) => {
+        const barHeight = (d.value / maxValue) * (height - 30);
+        return (
+          <g key={i}>
+            <rect
+              x={i * 60 + 10}
+              y={height - barHeight - 20}
+              width={40}
+              height={barHeight}
+              rx={4}
+              fill={barColor}
+              opacity={0.8}
+            />
+            <text x={i * 60 + 30} y={height - 2} textAnchor="middle" fontSize="10" fill="#5f7499">
+              {d.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+```
+
+**為什麼自己寫 SVG 長條圖而不是用 Chart.js / Recharts：**
+- 零 npm 依賴：省掉 ~200KB bundle size
+- 完全可控：樣式直接對應 Tailwind 色階（`barColor = '#10b981'` 對應 `emerald-500`）
+- 只有一個長條圖場景：不需要整個圖表庫的能力
+
+#### types/index.ts — 新增管理員型別
+
+```typescript
+export interface PaginatedResponse<T> {
+  content: T[];
+  totalPages: number;
+  totalElements: number;
+  size: number;
+  number: number;
+}
+
+export interface UserDetail {
+  user: User;
+  wallet: Wallet | null;
+  recentTransactions: Transaction[];
+}
+
+export interface AdminTransaction {
+  id: number;
+  fromUsername: string | null;
+  toUsername: string | null;
+  amount: number;
+  txType: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface TransactionStats {
+  totalTransactions: number;
+  totalVolume: number;
+  dailyAverage: number;
+  dailyVolumes: DailyVolume[];
+}
+
+export interface DailyVolume {
+  date: string;
+  volume: number;
+  count: number;
+}
+```
+
+**為什麼 `AdminTransaction` 用 username 而不是 walletId：** 一般用戶只關心自己的交易方向（比對 `walletId`），管理員需要看到 **誰匯給誰** — `fromUsername` 和 `toUsername` 直接顯示用戶名稱，無需前端再做 ID→名稱對照。
+
+#### Modal.tsx — `onConfirm` 改為可選
+
+```tsx
+interface ModalProps {
+  open: boolean;
+  onClose: () => void;
+  onConfirm?: () => void;        // 改為可選 — 唯讀 Modal 不需要確認按鈕
+  title: string;
+  children: ReactNode;
+  confirmLabel?: string;
+  confirmVariant?: 'primary' | 'danger';
+  isLoading?: boolean;
+}
+```
+
+**為什麼讓 `onConfirm` 可選：** 用戶詳情 Modal 是唯讀展示（只有「關閉」按鈕），不需要確認操作。可選的 `onConfirm` 讓同一個 Modal 元件同時支援「確認對話框」和「詳情展示」兩種模式。
+
+#### App.tsx — 加入管理員路由
+
+```tsx
+// 在 <AppLayout> 內新增兩條路由
+<Route path="/admin/users" element={<UserManagementPage />} />
+<Route path="/admin/transactions" element={<TransactionMonitoringPage />} />
+```
+
+管理員路由放在 `<ProtectedRoute>` 和 `<AppLayout>` 內，所以已自動具備：
+- 登入檢查（ProtectedRoute）
+- Sidebar + Outlet 佈局（AppLayout）
+- 側邊欄中條件式顯示管理員選單（Sidebar）
+
+**注意：** 無需額外的管理員專用路由守衛，因為後端 API 已做權限檢查。前端只負責 UI 顯示，後端才是真正的防線。
+
+---
+
 ## 交易方向判斷 — 常見錯誤對比
 
 這是整個前後端聯動中最容易出錯的部分：
@@ -1762,3 +2019,8 @@ npm run preview    # 預覽生產構建
 | `walletService.getWallet()` | GET | `/api/wallets` | — | `Wallet` |
 | `transactionService.transfer()` | POST | `/api/transactions/transfer` | `TransferRequest` | `ApiResponse` |
 | `transactionService.getTransactionHistory()` | GET | `/api/transactions` | — | `Transaction[]` |
+| `adminService.getUsers()` | GET | `/api/admin/users?page=&size=&search=` | — | `PaginatedResponse<User>` |
+| `adminService.getUserDetail()` | GET | `/api/admin/users/{userId}` | — | `UserDetail` |
+| `adminService.toggleUserStatus()` | PUT | `/api/admin/users/{userId}/status` | `{ enabled }` | `ApiResponse` |
+| `adminService.getAdminTransactions()` | GET | `/api/admin/transactions?page=&size=&username=&startDate=&endDate=` | — | `PaginatedResponse<AdminTransaction>` |
+| `adminService.getTransactionStats()` | GET | `/api/admin/transactions/stats?startDate=&endDate=` | — | `TransactionStats` |

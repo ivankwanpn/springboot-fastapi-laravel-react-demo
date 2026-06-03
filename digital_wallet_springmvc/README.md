@@ -316,6 +316,16 @@ public SecurityFilterChain filterChain(HttpSecurity http) {
 | GET | `/api/wallets` | 是 | — | `{"id":1,"userId":1,"currency":"USDT","balance":100.0000,"version":3,"updatedAt":"..."}` | 200 |
 | POST | `/api/transactions/transfer` | 是 | `{"toUsername":"bob","amount":50.00}` | `{"status":"SUCCESS","message":"Transfer completed successfully"}` | 200 |
 | GET | `/api/transactions` | 是 | — | `[{...TransactionDTO}, ...]` | 200 |
+| GET | `/api/admin/users` | 是 | ?search=&page=1&size=20 | `PaginatedResponse<UserDTO>` | 列出所有用戶（需 ROLE_ADMIN） |
+| GET | `/api/admin/users/{id}` | 是 | — | `UserDetailDTO` | 用戶詳情 |
+| PUT | `/api/admin/users/{id}/disable` | 是 | — | `ApiResponse` | 禁用用戶 |
+| PUT | `/api/admin/users/{id}/enable` | 是 | — | `ApiResponse` | 啟用用戶 |
+| GET | `/api/admin/transactions` | 是 | ?username=&from=&to=&page=1&size=20 | `PaginatedResponse<AdminTransactionDTO>` | 所有交易記錄 |
+| GET | `/api/admin/transactions/stats` | 是 | ?from=&to= | `TransactionStatsDTO` | 交易統計 |
+
+### 管理後台（Admin Dashboard）
+
+新增管理後台功能：JWT 包含 `role` claim；`spring-security.xml` 對 `/api/admin/**` 使用 `hasAuthority('ROLE_ADMIN')`；新增 `AdminService` + `AdminController`（於 `applicationContext.xml` 註冊 bean）；新增 5 個 Admin DTO（手寫 getters/setters，無 Lombok）。
 
 
 ## 錯誤響應格式

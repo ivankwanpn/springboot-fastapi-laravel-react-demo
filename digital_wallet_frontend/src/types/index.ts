@@ -49,3 +49,32 @@ export interface TransferRequest {
   toUsername: string;
   amount: string;
 }
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  page: number;
+  size: number;
+  total: number;
+}
+
+export interface UserDetail extends User {
+  wallet: Wallet | null;
+  recentTransactions: Transaction[];
+}
+
+export interface AdminTransaction extends Transaction {
+  fromUsername: string | null;
+  toUsername: string | null;
+}
+
+export interface TransactionStats {
+  totalTransactions: number;
+  totalAmount: string;
+  dailyVolume: DailyVolume[];
+}
+
+export interface DailyVolume {
+  date: string;
+  count: number;
+  amount: string;
+}

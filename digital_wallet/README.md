@@ -63,16 +63,19 @@ digital_wallet/
 │   │   ├── AuthController.java           #   POST /api/auth/register、/login
 │   │   ├── WalletController.java         #   GET /api/wallets（JWT→userId，防 IDOR）
 │   │   ├── TransactionController.java    #   POST /api/transactions/transfer、GET /api/transactions
+│   │   ├── AdminController.java          #   GET/PUT /api/admin/*（管理後台）
 │   │   └── GlobalExceptionHandler.java   #   @RestControllerAdvice
 │   │
 │   ├── service/
 │   │   ├── AuthService.java              #   介面：register()、login()
 │   │   ├── WalletService.java            #   介面：getWalletByUserId()
 │   │   ├── TransactionService.java       #   介面：transfer()、getTransactionHistory()
+│   │   ├── AdminService.java             #   介面：管理端業務邏輯
 │   │   └── impl/
 │   │       ├── AuthServiceImpl.java      #     BCrypt + JWT + 重複用戶名檢測
 │   │       ├── WalletServiceImpl.java    #     Entity→DTO 轉換
-│   │       └── TransactionServiceImpl.java #   @Transactional + 樂觀鎖
+│   │       ├── TransactionServiceImpl.java #   @Transactional + 樂觀鎖
+│   │       └── AdminServiceImpl.java     #    用戶管理 + 交易監控
 │   │
 │   ├── mapper/
 │   │   ├── UserMapper.java               #   MyBatis 介面
@@ -140,6 +143,28 @@ digital_wallet/
 | GET | `/api/wallets` | 是 | — | `WalletDTO` | 查詢**當前用戶**錢包 |
 | POST | `/api/transactions/transfer` | 是 | `{"toUsername":"bob","amount":50.0}` | `ApiResponse` | 轉賬 |
 | GET | `/api/transactions` | 是 | — | `List<TransactionDTO>` | 查詢**當前用戶**交易歷史 |
+| GET | `/api/admin/users` | 是 | ?search=&page=1&size=20 | `PaginatedResponse<UserDTO>` | 列出所有用戶（需 ROLE_ADMIN） |
+| GET | `/api/admin/users/{id}` | 是 | — | `UserDetailDTO` | 查看用戶詳情（錢包 + 最近交易） |
+| PUT | `/api/admin/users/{id}/disable` | 是 | — | `ApiResponse` | 禁用用戶（role → ROLE_DISABLED） |
+| PUT | `/api/admin/users/{id}/enable` | 是 | — | `ApiResponse` | 啟用用戶（role → ROLE_USER） |
+| GET | `/api/admin/transactions` | 是 | ?username=&from=&to=&page=1&size=20 | `PaginatedResponse<AdminTransactionDTO>` | 查看所有交易記錄 |
+| GET | `/api/admin/transactions/stats` | 是 | ?from=&to= | `TransactionStatsDTO` | 交易統計（總筆數、總金額、每日交易量） |
+
+### 管理後台（Admin Dashboard）
+
+**認證與授權變更：**
+- JWT Token 現包含 `role` claim（`ROLE_ADMIN`、`ROLE_USER`、`ROLE_DISABLED`）
+- `/api/admin/**` 端點由 Spring Security `.hasAuthority("ROLE_ADMIN")` 保護
+- `ROLE_DISABLED` 角色用戶登入時返回 401 "Invalid username or password"
+- Admin 用戶通過手動設置 DB 中 `role = 'ROLE_ADMIN'` 創建：`UPDATE users SET role = 'ROLE_ADMIN' WHERE id = 1;`
+
+**新增檔案：**
+- `AdminController.java` — 6 個管理端點
+- `AdminService.java` + `AdminServiceImpl.java` — 管理業務邏輯
+- `PaginatedResponse.java` — 通用分頁響應
+- `UserDetailDTO.java` — 用戶詳情（含錢包和最近交易）
+- `AdminTransactionDTO.java` — 管理端交易（含發送/接收用戶名）
+- `TransactionStatsDTO.java` + `DailyVolumeDTO.java` — 交易統計
 
 > **安全設計**：錢包和交易端點不接收路徑參數，從 JWT 自動提取用戶身份，防止 IDOR 漏洞。
 

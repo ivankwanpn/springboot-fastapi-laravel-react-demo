@@ -8,11 +8,12 @@ use Firebase\JWT\Key;
 
 class JwtHelper
 {
-    public static function generateToken(int $userId, string $username): string
+    public static function generateToken(int $userId, string $username, string $role): string
     {
         $payload = [
             'sub' => (string) $userId,
             'username' => $username,
+            'role' => $role,
             'iat' => time(),
             'exp' => time() + (int)(Jwt::expirationMs() / 1000),
         ];

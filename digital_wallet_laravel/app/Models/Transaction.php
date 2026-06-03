@@ -19,4 +19,14 @@ class Transaction extends Model
         'amount' => 'decimal:4',
         'created_at' => 'datetime',
     ];
+
+    public function fromWallet()
+    {
+        return $this->belongsTo(Wallet::class, 'from_wallet_id');
+    }
+
+    public function toWallet()
+    {
+        return $this->belongsTo(Wallet::class, 'to_wallet_id');
+    }
 }

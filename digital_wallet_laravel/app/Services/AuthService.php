@@ -48,7 +48,11 @@ class AuthService
             throw new AuthenticationException('Invalid username or password');
         }
 
-        $token = JwtHelper::generateToken($user->id, $user->username);
+        if ($user->role === 'ROLE_DISABLED') {
+            throw new AuthenticationException('Invalid username or password');
+        }
+
+        $token = JwtHelper::generateToken($user->id, $user->username, $user->role);
 
         return [
             'token' => $token,

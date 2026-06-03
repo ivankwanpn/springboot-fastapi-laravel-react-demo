@@ -36,7 +36,10 @@ async def login(session: AsyncSession, username: str, password: str) -> LoginRes
     if not verify_password(password, user.password_hash):
         raise AuthenticationException("Invalid username or password")
 
-    token = create_access_token(user.id, user.username)
+    if user.role == "ROLE_DISABLED":
+        raise AuthenticationException("Invalid username or password")
+
+    token = create_access_token(user.id, user.username, user.role)
 
     user_response = UserResponse(
         id=user.id,

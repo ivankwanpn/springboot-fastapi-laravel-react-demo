@@ -74,4 +74,15 @@
         <property name="transactionMapper" ref="transactionMapper"/>
     </bean>
 
+    <!-- ========== Admin Beans ========== -->
+    <bean id="adminService" class="com.digitalwallet.service.AdminService">
+        <property name="userMapper" ref="userMapper"/>
+        <property name="walletMapper" ref="walletMapper"/>
+        <property name="transactionMapper" ref="transactionMapper"/>
+    </bean>
+
+    <bean id="adminController" class="com.digitalwallet.controller.AdminController">
+        <property name="adminService" ref="adminService"/>
+    </bean>
+
 </beans>

@@ -5,6 +5,18 @@
 
 <mapper namespace="com.digital_wallet.mapper.TransactionMapper">
 
+    <resultMap id="adminTransactionMap" type="com.digital_wallet.model.dto.AdminTransactionDTO">
+        <id property="id" column="id"/>
+        <result property="fromWalletId" column="from_wallet_id"/>
+        <result property="toWalletId" column="to_wallet_id"/>
+        <result property="amount" column="amount"/>
+        <result property="txType" column="tx_type"/>
+        <result property="status" column="status"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="fromUsername" column="from_username"/>
+        <result property="toUsername" column="to_username"/>
+    </resultMap>
+
     <insert id="insert" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
         INSERT INTO transactions(from_wallet_id, to_wallet_id, amount, tx_type, status)
         VALUES(#{fromWalletId}, #{toWalletId}, #{amount}, #{txType}, #{status})
@@ -15,6 +27,79 @@
         WHERE from_wallet_id = #{walletId}
            OR to_wallet_id = #{walletId}
         ORDER BY created_at DESC
+    </select>
+
+    <select id="findAllWithFilters" resultMap="adminTransactionMap">
+        SELECT t.id, t.from_wallet_id, t.to_wallet_id, t.amount,
+               t.tx_type, t.status, t.created_at,
+               fu.username AS from_username, tu.username AS to_username
+        FROM transactions t
+        LEFT JOIN wallets fw ON t.from_wallet_id = fw.id
+        LEFT JOIN users fu ON fw.user_id = fu.id
+        LEFT JOIN wallets tw ON t.to_wallet_id = tw.id
+        LEFT JOIN users tu ON tw.user_id = tu.id
+        <where>
+            <if test="username != null and username != ''">
+                (fu.username ILIKE '%' || #{username} || '%'
+                 OR tu.username ILIKE '%' || #{username} || '%')
+            </if>
+            <if test="fromDate != null">
+                AND t.created_at &gt;= #{fromDate}
+            </if>
+            <if test="toDate != null">
+                AND t.created_at &lt; #{toDate}::date + INTERVAL '1 day'
+            </if>
+        </where>
+        ORDER BY t.created_at DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAllWithFilters" resultType="int">
+        SELECT COUNT(*)
+        FROM transactions t
+        LEFT JOIN wallets fw ON t.from_wallet_id = fw.id
+        LEFT JOIN users fu ON fw.user_id = fu.id
+        LEFT JOIN wallets tw ON t.to_wallet_id = tw.id
+        LEFT JOIN users tu ON tw.user_id = tu.id
+        <where>
+            <if test="username != null and username != ''">
+                (fu.username ILIKE '%' || #{username} || '%'
+                 OR tu.username ILIKE '%' || #{username} || '%')
+            </if>
+            <if test="fromDate != null">
+                AND t.created_at &gt;= #{fromDate}
+            </if>
+            <if test="toDate != null">
+                AND t.created_at &lt; #{toDate}::date + INTERVAL '1 day'
+            </if>
+        </where>
+    </select>
+
+    <select id="findRecentByWalletId" resultType="Transaction">
+        SELECT * FROM transactions
+        WHERE from_wallet_id = #{walletId}
+           OR to_wallet_id = #{walletId}
+        ORDER BY created_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="getTransactionCount" resultType="long">
+        SELECT COUNT(*) FROM transactions
+    </select>
+
+    <select id="getTransactionTotalAmount" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(amount), 0) FROM transactions
+    </select>
+
+    <select id="getDailyVolume" resultType="com.digital_wallet.model.dto.DailyVolumeDTO">
+        SELECT DATE(created_at) AS date,
+               COUNT(*)::bigint AS count,
+               COALESCE(SUM(amount), 0) AS amount
+        FROM transactions
+        WHERE created_at &gt;= #{fromDate}
+          AND created_at &lt; #{toDate}::date + INTERVAL '1 day'
+        GROUP BY DATE(created_at)
+        ORDER BY date
     </select>
 
 </mapper>

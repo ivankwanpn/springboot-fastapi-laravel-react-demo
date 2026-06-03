@@ -1,4 +1,4 @@
-const { extractUserId } = require('../utils/jwt');
+const { extractUserId, verifyToken } = require('../utils/jwt');
 const AppError = require('../utils/AppError');
 
 function authMiddleware(req, res, next) {
@@ -11,6 +11,8 @@ function authMiddleware(req, res, next) {
 
   try {
     req.userId = extractUserId(token);
+    const payload = verifyToken(token);
+    req.userRole = payload.role || 'ROLE_USER';
     next();
   } catch (err) {
     next(new AppError(401, 'Invalid username or password'));

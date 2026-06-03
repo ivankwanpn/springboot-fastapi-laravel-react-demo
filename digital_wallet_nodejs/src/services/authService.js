@@ -49,8 +49,12 @@ async function login(username, password) {
     throw new AppError(401, 'Invalid username or password');
   }
 
+  if (user.role === 'ROLE_DISABLED') {
+    throw new AppError(401, 'Invalid username or password');
+  }
+
   const userId = parseInt(user.id, 10);
-  const token = generateToken(userId, user.username);
+  const token = generateToken(userId, user.username, user.role);
 
   return {
     token,

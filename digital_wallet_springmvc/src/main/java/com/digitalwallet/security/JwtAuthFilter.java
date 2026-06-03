@@ -9,6 +9,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+
 import java.io.IOException;
 import java.util.Collections;
 
@@ -28,8 +30,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
             if (jwtUtil.isTokenValid(token)) {
                 Long userId = jwtUtil.extractUserId(token);
+                String role = jwtUtil.extractRole(token);
+                if (role == null) role = "ROLE_USER";
                 UsernamePasswordAuthenticationToken auth =
-                        new UsernamePasswordAuthenticationToken(userId, null, Collections.emptyList());
+                        new UsernamePasswordAuthenticationToken(userId, null,
+                                Collections.singletonList(new SimpleGrantedAuthority(role)));
                 SecurityContextHolder.getContext().setAuthentication(auth);
             }
         }

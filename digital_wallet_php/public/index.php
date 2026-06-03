@@ -6,7 +6,9 @@ ini_set('display_errors', '0');
 require __DIR__ . '/../vendor/autoload.php';
 
 use App\Exception\AppException;
+use App\Middleware\AdminMiddleware;
 use App\Middleware\JwtMiddleware;
+use App\Service\AdminService;
 use App\Service\AuthService;
 use App\Service\WalletService;
 use App\Service\TransactionService;
@@ -26,8 +28,15 @@ try {
         'GET /api/wallets' => true,
         'POST /api/transactions/transfer' => true,
         'GET /api/transactions' => true,
+        'GET /api/admin/users' => 'admin',
+        'GET /api/admin/transactions' => 'admin',
+        'GET /api/admin/stats' => 'admin',
         default => null,
     };
+
+    if ($route === null && str_starts_with($uri, '/api/admin/')) {
+        $route = 'admin';
+    }
 
     if ($route === null) {
         JsonResponse::send(['status' => 'ERROR', 'message' => 'Not found'], 404);
@@ -35,6 +44,72 @@ try {
 
     if ($route === true) {
         JwtMiddleware::handle($request);
+    }
+
+    if ($route === 'admin') {
+        JwtMiddleware::handle($request);
+        AdminMiddleware::handle($request);
+    }
+
+    if ($route === 'admin') {
+        $parts = explode('/', trim($uri, '/'));
+
+        // GET /api/admin/users
+        if ($method === 'GET' && $uri === '/api/admin/users') {
+            $adminService = new AdminService();
+            $result = $adminService->listUsers(
+                $request->input('search', ''),
+                (int) $request->input('page', 0),
+                (int) $request->input('size', 10)
+            );
+            JsonResponse::send($result);
+        }
+
+        // GET /api/admin/users/{id}
+        if ($method === 'GET' && count($parts) === 4 && $parts[2] === 'users' && is_numeric($parts[3])) {
+            $adminService = new AdminService();
+            $result = $adminService->getUserDetail((int) $parts[3]);
+            JsonResponse::send($result);
+        }
+
+        // PATCH /api/admin/users/{id}/disable
+        if ($method === 'PATCH' && count($parts) === 5 && $parts[2] === 'users' && $parts[4] === 'disable' && is_numeric($parts[3])) {
+            $adminService = new AdminService();
+            $adminService->disableUser((int) $parts[3]);
+            JsonResponse::send(['status' => 'SUCCESS', 'message' => 'User disabled successfully']);
+        }
+
+        // PATCH /api/admin/users/{id}/enable
+        if ($method === 'PATCH' && count($parts) === 5 && $parts[2] === 'users' && $parts[4] === 'enable' && is_numeric($parts[3])) {
+            $adminService = new AdminService();
+            $adminService->enableUser((int) $parts[3]);
+            JsonResponse::send(['status' => 'SUCCESS', 'message' => 'User enabled successfully']);
+        }
+
+        // GET /api/admin/transactions
+        if ($method === 'GET' && $uri === '/api/admin/transactions') {
+            $adminService = new AdminService();
+            $result = $adminService->listTransactions(
+                $request->input('username', null),
+                $request->input('fromDate', null),
+                $request->input('toDate', null),
+                (int) $request->input('page', 0),
+                (int) $request->input('size', 10)
+            );
+            JsonResponse::send($result);
+        }
+
+        // GET /api/admin/stats
+        if ($method === 'GET' && $uri === '/api/admin/stats') {
+            $adminService = new AdminService();
+            $result = $adminService->getTransactionStats(
+                $request->input('fromDate', null),
+                $request->input('toDate', null)
+            );
+            JsonResponse::send($result);
+        }
+
+        JsonResponse::send(['status' => 'ERROR', 'message' => 'Not found'], 404);
     }
 
     switch ($uri) {

@@ -41,6 +41,15 @@ const navItems = [
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const location = useLocation();
+  const isAdmin = user?.role === 'ROLE_ADMIN';
+
+  const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
+  const linkClass = (path: string) =>
+    `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+      isActive(path)
+        ? 'bg-emerald-500/10 text-emerald-400'
+        : 'text-navy-300 hover:bg-navy-700 hover:text-white'
+    }`;
 
   return (
     <aside className="flex w-64 flex-col border-r border-navy-600 bg-navy-900">
@@ -55,23 +64,34 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {navItems.map((item) => {
-          const isActive = location.pathname === item.to;
-          return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-emerald-500/10 text-emerald-400'
-                  : 'text-navy-300 hover:bg-navy-700 hover:text-white'
-              }`}
-            >
-              {item.icon}
-              {item.label}
+        {navItems.map((item) => (
+          <NavLink key={item.to} to={item.to} className={linkClass(item.to)}>
+            {item.icon}
+            {item.label}
+          </NavLink>
+        ))}
+
+        {isAdmin && (
+          <>
+            <div className="px-3 pt-4 pb-1">
+              <p className="px-3 text-xs font-semibold uppercase tracking-wider text-navy-400">Admin</p>
+            </div>
+            <NavLink to="/admin/users" className={linkClass('/admin/users')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
+              </svg>
+              User Management
             </NavLink>
-          );
-        })}
+            <NavLink to="/admin/transactions" className={linkClass('/admin/transactions')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+              </svg>
+              Transaction Monitoring
+            </NavLink>
+          </>
+        )}
       </nav>
 
       <div className="border-t border-navy-600 p-4">
