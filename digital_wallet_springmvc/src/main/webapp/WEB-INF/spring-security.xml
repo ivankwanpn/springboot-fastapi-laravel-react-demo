@@ -18,6 +18,7 @@
         <cors configuration-source-ref="corsConfig"/>
 
         <intercept-url pattern="/api/auth/**" access="permitAll()"/>
+        <intercept-url pattern="/api/admin/**" access="hasAuthority('ROLE_ADMIN')"/>
         <intercept-url pattern="/api/**" access="isAuthenticated()"/>
 
         <custom-filter ref="jwtAuthFilter" before="PRE_AUTH_FILTER"/>

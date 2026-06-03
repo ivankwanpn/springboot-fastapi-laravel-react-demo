@@ -32,6 +32,7 @@ class JwtMiddleware
         }
 
         $request->attributes->set('userId', (int) $payload->sub);
+        $request->attributes->set('userRole', $payload->role ?? 'ROLE_USER');
 
         return $next($request);
     }

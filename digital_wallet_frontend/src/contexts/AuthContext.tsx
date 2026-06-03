@@ -5,6 +5,7 @@ interface AuthState {
   token: string | null;
   user: User | null;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   login: (token: string, user: User) => void;
   logout: () => void;
 }
@@ -46,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ token, user, isAuthenticated: !!token, login, logout }}
+      value={{ token, user, isAuthenticated: !!token, isAdmin: user?.role === 'ROLE_ADMIN', login, logout }}
     >
       {children}
     </AuthContext.Provider>

@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api import auth, wallets, transactions
+from app.api import auth, wallets, transactions, admin
 from app.exceptions.handlers import AppException
 from app.schemas.common import ApiResponse
 
@@ -16,6 +16,7 @@ app = FastAPI(
 app.include_router(auth.router)
 app.include_router(wallets.router)
 app.include_router(transactions.router)
+app.include_router(admin.router)
 
 
 # global exception handler

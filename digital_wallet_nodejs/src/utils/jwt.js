@@ -3,9 +3,9 @@ const jwt = require('jsonwebtoken');
 const SECRET = process.env.JWT_SECRET;
 const EXPIRATION = parseInt(process.env.JWT_EXPIRATION || '86400000', 10);
 
-function generateToken(userId, username) {
+function generateToken(userId, username, role) {
   return jwt.sign(
-    { sub: String(userId), username },
+    { sub: String(userId), username, role },
     SECRET,
     { algorithm: 'HS256', expiresIn: EXPIRATION / 1000 }
   );

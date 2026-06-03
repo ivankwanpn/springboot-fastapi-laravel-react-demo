@@ -127,6 +127,16 @@ digital_wallet_php_old/
 | GET | `/api/wallets` | 是 | — | `{"id":1,"userId":1,"currency":"USDT","balance":0,"version":0,"updatedAt":"..."}` | 200 |
 | POST | `/api/transactions/transfer` | 是 | `{"toUsername":"bob","amount":"50.0000"}` | `{"status":"SUCCESS","message":"Transfer completed successfully"}` | 200 |
 | GET | `/api/transactions` | 是 | — | `[{"id":1,"fromWalletId":...,"toWalletId":...,"amount":...,"txType":"TRANSFER","status":"SUCCESS","createdAt":"..."}]` | 200 |
+| GET | `/api/admin/users` | 是 | ?search=&page=1&size=20 | `{"data":[...],"page":1,"size":20,"total":N}` | 列出所有用戶（需 ROLE_ADMIN） |
+| GET | `/api/admin/users/{id}` | 是 | — | `{"id":...,"username":"...","wallet":{...},"recentTransactions":[...]}` | 用戶詳情 |
+| PUT | `/api/admin/users/{id}/disable` | 是 | — | `{"status":"SUCCESS","message":"User disabled successfully"}` | 禁用用戶 |
+| PUT | `/api/admin/users/{id}/enable` | 是 | — | `{"status":"SUCCESS","message":"User enabled successfully"}` | 啟用用戶 |
+| GET | `/api/admin/transactions` | 是 | ?username=&from=&to=&page=1&size=20 | `{"data":[{...,fromUsername,toUsername}],"page":1,"size":20,"total":N}` | 所有交易記錄 |
+| GET | `/api/admin/transactions/stats` | 是 | ?from=&to= | `{"totalTransactions":N,"totalAmount":"...","dailyVolume":[{date,count,amount}]}` | 交易統計 |
+
+### 管理後台（Admin Dashboard）
+
+新增管理後台功能，需 `ROLE_ADMIN` 角色才能訪問。新增檔案：`src/Middleware/AdminMiddleware.php`、`src/Service/AdminService.php`，以及 `public/index.php`（新增 admin 路由）、`src/Util/JwtHelper.php`（JWT 包含 `role` claim）、`src/Service/AuthService.php`（`ROLE_DISABLED` 檢查）、`src/Middleware/JwtMiddleware.php`（提取 `role` 至 request attributes）。
 
 > **安全設計**：錢包和交易端點不接收路徑參數，從 JWT 自動提取用戶身份（`$request->getAttribute('userId')`），防止 IDOR 漏洞。
 

@@ -8,7 +8,7 @@ use RuntimeException;
 
 class JwtHelper
 {
-    public static function generateToken(int $userId, string $username): string
+    public static function generateToken(int $userId, string $username, string $role): string
     {
         $secret = self::getSecret();
         $expirationSeconds = self::getExpirationSeconds();
@@ -16,6 +16,7 @@ class JwtHelper
         $payload = [
             'sub' => (string) $userId,
             'username' => $username,
+            'role' => $role,
             'iat' => time(),
             'exp' => time() + $expirationSeconds,
         ];

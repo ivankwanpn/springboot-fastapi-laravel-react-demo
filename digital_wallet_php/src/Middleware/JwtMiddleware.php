@@ -21,6 +21,7 @@ class JwtMiddleware
         try {
             $payload = JwtHelper::decodeToken($token);
             $request->setAttribute('userId', (int) $payload->sub);
+            $request->setAttribute('userRole', $payload->role ?? 'ROLE_USER');
         } catch (\Exception $e) {
             throw new AuthenticationException();
         }

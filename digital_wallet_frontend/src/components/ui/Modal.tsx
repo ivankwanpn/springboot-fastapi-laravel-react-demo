@@ -4,7 +4,7 @@ import Button from './Button';
 interface ModalProps {
   open: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm?: () => void;
   title: string;
   children: ReactNode;
   confirmLabel?: string;
@@ -41,10 +41,12 @@ export default function Modal({
         <h3 className="text-lg font-semibold text-white mb-2">{title}</h3>
         <div className="text-sm text-navy-200 mb-6">{children}</div>
         <div className="flex justify-end gap-3">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button variant={confirmVariant} onClick={onConfirm} isLoading={isLoading}>
-            {confirmLabel}
-          </Button>
+          <Button variant="ghost" onClick={onClose}>{onConfirm ? 'Cancel' : 'Close'}</Button>
+          {onConfirm && (
+            <Button variant={confirmVariant} onClick={onConfirm} isLoading={isLoading}>
+              {confirmLabel}
+            </Button>
+          )}
         </div>
       </div>
     </div>

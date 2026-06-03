@@ -63,7 +63,11 @@ public class AuthServiceImpl implements AuthService {
             throw new AuthenticationException("Invalid username or password");
         }
 
-        String token = jwtUtil.generateToken(user.getId(), user.getUsername());
+        if ("ROLE_DISABLED".equals(user.getRole())) {
+            throw new AuthenticationException("Invalid username or password");
+        }
+
+        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole());
 
         UserDTO userDTO = UserDTO.builder()
                 .id(user.getId())

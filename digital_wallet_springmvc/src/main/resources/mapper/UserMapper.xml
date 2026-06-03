@@ -22,4 +22,35 @@
         FROM users WHERE username = #{username}
     </select>
 
+    <select id="findById" resultMap="userMap">
+        SELECT id, username, password_hash, role, created_at
+        FROM users WHERE id = #{id}
+    </select>
+
+    <select id="findAllWithPagination" resultMap="userMap">
+        SELECT id, username, role, created_at
+        FROM users
+        <where>
+            <if test="search != null and search != ''">
+                username ILIKE '%' || #{search} || '%'
+            </if>
+        </where>
+        ORDER BY id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAll" resultType="int">
+        SELECT COUNT(*)
+        FROM users
+        <where>
+            <if test="search != null and search != ''">
+                username ILIKE '%' || #{search} || '%'
+            </if>
+        </where>
+    </select>
+
+    <update id="updateRole">
+        UPDATE users SET role = #{role} WHERE id = #{id}
+    </update>
+
 </mapper>

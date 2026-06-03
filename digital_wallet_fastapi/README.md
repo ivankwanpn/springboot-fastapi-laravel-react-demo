@@ -66,19 +66,22 @@ digital_wallet_fastapi/
 │   │   ├── common.py             #   ApiResponse (通用響應)
 │   │   ├── auth.py               #   UserCreate, UserResponse, LoginRequest, LoginResponse
 │   │   ├── wallet.py             #   WalletResponse
-│   │   └── transaction.py        #   TransferRequest, TransactionResponse
+│   │   ├── transaction.py        #   TransferRequest, TransactionResponse
+│   │   └── admin.py               #   Admin Pydantic 模型
 │   │
 │   ├── api/                      # API 路由
 │   │   ├── __init__.py
 │   │   ├── auth.py               #   POST /api/auth/register, /login
 │   │   ├── wallets.py            #   GET /api/wallets
-│   │   └── transactions.py       #   POST /api/transactions/transfer, GET /api/transactions
+│   │   ├── transactions.py       #   POST /api/transactions/transfer, GET /api/transactions
+│   │   └── admin.py              #   6 個管理端點 (ROLE_ADMIN)
 │   │
 │   ├── services/                 # 業務邏輯
 │   │   ├── __init__.py
 │   │   ├── auth_service.py       #   register(), login()
 │   │   ├── wallet_service.py     #   get_wallet_by_user_id()
-│   │   └── transaction_service.py #  transfer() + 樂觀鎖, get_transaction_history()
+│   │   ├── transaction_service.py #  transfer() + 樂觀鎖, get_transaction_history()
+│   │   └── admin_service.py       #  管理業務邏輯
 │   │
 │   ├── core/                     # 基礎設施
 │   │   ├── __init__.py
@@ -123,6 +126,25 @@ digital_wallet_fastapi/
 | GET | `/api/wallets` | 是 | — | `{"id":1,"userId":1,"currency":"USDT","balance":100.5000,"version":3,"updatedAt":"..."}` | 200 |
 | POST | `/api/transactions/transfer` | 是 | `{"toUsername":"bob","amount":50.0}` | `{"status":"SUCCESS","message":"Transfer completed successfully"}` | 200 |
 | GET | `/api/transactions` | 是 | — | `[{...TransactionDTO}, ...]` | 200 |
+| GET | `/api/admin/users` | 是 | ?search=&page=1&size=20 | `PaginatedResponse` | 列出所有用戶（需 ROLE_ADMIN） |
+| GET | `/api/admin/users/{id}` | 是 | — | `UserDetailResponse` | 用戶詳情（錢包 + 最近交易） |
+| PUT | `/api/admin/users/{id}/disable` | 是 | — | `ApiResponse` | 禁用用戶 |
+| PUT | `/api/admin/users/{id}/enable` | 是 | — | `ApiResponse` | 啟用用戶 |
+| GET | `/api/admin/transactions` | 是 | ?username=&from_date=&to_date=&page=1&size=20 | `PaginatedResponse[AdminTransactionResponse]` | 所有交易記錄 |
+| GET | `/api/admin/transactions/stats` | 是 | ?from_date=&to_date= | `TransactionStatsResponse` | 交易統計 |
+
+### 管理後台（Admin Dashboard）
+
+**認證變更：**
+- `create_access_token()` 現接受 `role` 參數，JWT 包含 `role` claim
+- 新增 `require_admin` 依賴：檢查 `role == "ROLE_ADMIN"`，不滿足返回 403
+- `ROLE_DISABLED` 用戶登入時返回 401
+
+**新增檔案：**
+- `app/api/admin.py` — 6 個管理端點
+- `app/services/admin_service.py` — 管理業務邏輯
+- `app/schemas/admin.py` — Admin Pydantic 模型
+- `app/core/deps.py` — 新增 `require_admin` 依賴
 
 ---
 

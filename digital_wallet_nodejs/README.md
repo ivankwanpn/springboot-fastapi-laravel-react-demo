@@ -51,17 +51,20 @@ digital_wallet_nodejs/
 │   │
 │   ├── middleware/
 │   │   ├── auth.js                       # JWT 驗證中介層（Bearer token → req.userId）
+│   │   ├── admin.js                      # Admin 角色檢查中介層（ROLE_ADMIN → next/403）
 │   │   └── errorHandler.js              # 全域錯誤處理（AppError → JSON）
 │   │
 │   ├── routes/
 │   │   ├── auth.js                       # POST /api/auth/register, /login
 │   │   ├── wallets.js                    # GET /api/wallets
-│   │   └── transactions.js              # POST /api/transactions/transfer, GET /api/transactions
+│   │   ├── transactions.js              # POST /api/transactions/transfer, GET /api/transactions
+│   │   └── admin.js                      # GET/PUT /api/admin/users, /api/admin/transactions
 │   │
 │   ├── services/
 │   │   ├── authService.js               # register（bcrypt + 查重 + 創建錢包）, login
 │   │   ├── walletService.js             # findByUserId → camelCase DTO
-│   │   └── transactionService.js        # transfer（樂觀鎖 + pg transaction）, getHistory
+│   │   ├── transactionService.js        # transfer（樂觀鎖 + pg transaction）, getHistory
+│   │   └── adminService.js              # listUsers, getUserDetail, disable/enableUser, transaction history/stats
 │   │
 │   ├── utils/
 │   │   ├── AppError.js                  # 自訂錯誤類（statusCode + message）
@@ -193,6 +196,25 @@ router.post('/transfer', auth, transferRules, validate, async (...) => {...});
 | GET | `/api/wallets` | 是 | — | `{"id":1,"userId":1,"currency":"USDT","balance":0.0000,"version":0,"updatedAt":"..."}` | 200 |
 | POST | `/api/transactions/transfer` | 是 | `{"toUsername":"bob","amount":"50.0000"}` | `{"status":"SUCCESS","message":"Transfer completed successfully"}` | 200 |
 | GET | `/api/transactions` | 是 | — | `[{...TransactionDTO}, ...]` | 200 |
+| GET | `/api/admin/users` | 是 | ?search=&page=1&size=20 | `{"data":[...],"page":1,"size":20,"total":N}` | 列出所有用戶（需 ROLE_ADMIN） |
+| GET | `/api/admin/users/{id}` | 是 | — | `{"id":...,"username":"...","role":"...","wallet":{...},"recentTransactions":[...]}` | 用戶詳情 |
+| PUT | `/api/admin/users/{id}/disable` | 是 | — | `{"status":"SUCCESS","message":"User disabled successfully"}` | 禁用用戶 |
+| PUT | `/api/admin/users/{id}/enable` | 是 | — | `{"status":"SUCCESS","message":"User enabled successfully"}` | 啟用用戶 |
+| GET | `/api/admin/transactions` | 是 | ?username=&from=&to=&page=1&size=20 | `{"data":[{...fromUsername,toUsername}],"page":1,"size":20,"total":N}` | 所有交易記錄 |
+| GET | `/api/admin/transactions/stats` | 是 | ?from=&to= | `{"totalTransactions":N,"totalAmount":"...","dailyVolume":[{date,count,amount}]}` | 交易統計 |
+
+### 管理後台（Admin Dashboard）
+
+**認證與授權變更：**
+- JWT Token 現包含 `role` claim
+- `ROLE_DISABLED` 角色用戶登入時返回 401
+- `/api/admin/**` 路由由 `auth` + `admin` 中介層保護
+- Admin 用戶通過手動設置 DB 中 `role = 'ROLE_ADMIN'` 創建
+
+**新增檔案：**
+- `src/middleware/admin.js` — Admin 角色檢查中介層
+- `src/services/adminService.js` — 管理業務邏輯（6 個方法）
+- `src/routes/admin.js` — 6 個管理端點
 
 ## 錯誤響應格式
 

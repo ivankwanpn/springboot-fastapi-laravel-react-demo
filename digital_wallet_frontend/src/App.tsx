@@ -9,6 +9,8 @@ import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import TransferPage from './pages/TransferPage';
 import TransactionHistoryPage from './pages/TransactionHistoryPage';
+import UserManagementPage from './pages/admin/UserManagementPage';
+import TransactionMonitoringPage from './pages/admin/TransactionMonitoringPage';
 
 function AuthEventListener() {
   const navigate = useNavigate();
@@ -41,6 +43,8 @@ function App() {
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/transfer" element={<TransferPage />} />
               <Route path="/transactions" element={<TransactionHistoryPage />} />
+              <Route path="/admin/users" element={<UserManagementPage />} />
+              <Route path="/admin/transactions" element={<TransactionMonitoringPage />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

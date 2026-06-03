@@ -153,6 +153,16 @@ digital_wallet_laravel/
 | GET | `/api/wallets` | 是 | — | `{"id":1,"userId":1,"currency":"USDT","balance":100.5000,"version":3,"updatedAt":"..."}` | 200 |
 | POST | `/api/transactions/transfer` | 是 | `{"toUsername":"bob","amount":50.0}` | `{"status":"SUCCESS","message":"Transfer completed successfully"}` | 200 |
 | GET | `/api/transactions` | 是 | — | `[{...TransactionDTO}, ...]` | 200 |
+| GET | `/api/admin/users` | 是 (ROLE_ADMIN) | ?search=&page=1&size=20 | `PaginatedResponse` | 列出所有用戶 |
+| GET | `/api/admin/users/{id}` | 是 (ROLE_ADMIN) | — | `UserDetailDTO` | 用戶詳情 |
+| PUT | `/api/admin/users/{id}/disable` | 是 (ROLE_ADMIN) | — | `ApiResponse` | 禁用用戶 |
+| PUT | `/api/admin/users/{id}/enable` | 是 (ROLE_ADMIN) | — | `ApiResponse` | 啟用用戶 |
+| GET | `/api/admin/transactions` | 是 (ROLE_ADMIN) | ?username=&from=&to=&page=1&size=20 | `PaginatedResponse<AdminTransactionDTO>` | 所有交易 |
+| GET | `/api/admin/transactions/stats` | 是 (ROLE_ADMIN) | ?from=&to= | `TransactionStatsDTO` | 交易統計 |
+
+### 管理後台（Admin Dashboard）
+
+新增管理後台功能：JWT 現在包含 `role` claim；`bootstrap/app.php` 註冊 `admin.role` middleware；新增 `AdminController` + `AdminService` + `AdminMiddleware`；`Transaction` model 新增 `fromWallet()` / `toWallet()` 關聯。
 
 ---
 

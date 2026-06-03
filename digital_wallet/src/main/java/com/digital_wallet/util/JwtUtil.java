@@ -22,13 +22,14 @@ public class JwtUtil {
     private long expiration;
 
     // 1. 產生 Token (將 userId 藏在 Subject 裡面)
-    public String generateToken(Long userId, String username) {
+    public String generateToken(Long userId, String username, String role) {
         return Jwts.builder()
-                .setSubject(String.valueOf(userId)) // 通常把最關鍵的 ID 放進 Subject
-                .claim("username", username)        // 可以額外塞入自訂欄位 (Claim)
-                .setIssuedAt(new Date(System.currentTimeMillis())) // 發證時間
-                .setExpiration(new Date(System.currentTimeMillis() + expiration)) // 過期時間
-                .signWith(getSignInKey(), SignatureAlgorithm.HS256) // 使用私鑰與 HS256 演算法簽名
+                .setSubject(String.valueOf(userId))
+                .claim("username", username)
+                .claim("role", role)
+                .setIssuedAt(new Date(System.currentTimeMillis()))
+                .setExpiration(new Date(System.currentTimeMillis() + expiration))
+                .signWith(getSignInKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
 
@@ -36,6 +37,11 @@ public class JwtUtil {
     public Long extractUserId(String token) {
         Claims claims = extractAllClaims(token);
         return Long.parseLong(claims.getSubject());
+    }
+
+    public String extractRole(String token) {
+        Claims claims = extractAllClaims(token);
+        return claims.get("role", String.class);
     }
 
     // 3. 驗證 Token 是否合法且未過期
