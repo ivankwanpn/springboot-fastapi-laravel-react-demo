@@ -21,6 +21,25 @@
 
 ---
 
+### 與其他版本的技術對照
+
+| 功能 | Spring Boot | Spring MVC | Node.js | FastAPI | Laravel | 純 PHP | Next.js |
+|------|------------|-----------|---------|---------|---------|--------|---------|
+| 語言 | Java | Java | JavaScript | Python | PHP | PHP | TypeScript |
+| Web框架 | Spring Boot 3.5 | Spring MVC 6 | Express 5 | FastAPI | Laravel 11 | 無框架 | Next.js 16 |
+| ORM/DB | MyBatis | MyBatis | pg (raw SQL) | SQLAlchemy 2.0 async | Eloquent | PDO (raw SQL) | Prisma 7 |
+| 配置方式 | application.yaml + @Value | XML + @Value | dotenv + .env | pydantic-settings + .env | .env + config/app.php | .env + parse_ini_file | .env + next.config |
+| JWT套件 | jjwt | jjwt | jsonwebtoken | PyJWT | firebase/php-jwt | firebase/php-jwt | jose |
+| DI方式 | @Autowired | @Autowired | 手動 require (無 DI) | Depends() | Service Container | 無 DI | 無 DI (React hooks) |
+| 事務管理 | @Transactional | @Transactional | pool.connect() + BEGIN/COMMIT/ROLLBACK | async with session.begin() | DB::transaction() | PDO::beginTransaction() | Prisma $transaction |
+| 樂觀鎖實作 | UPDATE ... WHERE version = #{version} | UPDATE ... WHERE version = #{version} | UPDATE ... WHERE version = $3 + rowCount | update().where(version=).rowcount | updateOrFail() + version | UPDATE ... WHERE version = :version + rowCount() | Prisma update with version |
+| 分頁方式 | RowBounds | RowBounds | LIMIT/OFFSET 手動SQL | limit()/offset() | paginate() | LIMIT/OFFSET 手動SQL | Prisma skip/take |
+| 密碼雜湊 | BCryptPasswordEncoder | BCryptPasswordEncoder | bcrypt (rounds=12) | passlib[bcrypt] | Hash::make() (bcrypt) | password_hash() (bcrypt) | bcryptjs |
+| 伺服器 | Embedded Tomcat | External Tomcat 10.1 | Node.js HTTP (Express) | Uvicorn (ASGI) | php artisan serve | PHP built-in server | Vite dev / Node.js |
+| Admin授權機制 | @PreAuthorize("hasRole('ADMIN')") | @PreAuthorize("hasRole('ADMIN')") | middleware admin.js (check req.userRole) | Depends(require_admin) | middleware + Gate | 手動 check $decoded['role'] | middleware + role check |
+
+---
+
 ## 專案結構
 
 ```
@@ -84,6 +103,27 @@ digital_wallet_nodejs/
 
 > 錯誤回應格式：`{"status":"ERROR","message":"..."}`  
 > 成功回應格式：`{"status":"SUCCESS","message":"..."}` 或直接回傳資料物件。
+
+---
+
+## 如何快速找到要抄的部分
+
+| 你想學/抄什麼 | 直接看這個檔案 |
+|-------------|-------------|
+| 專案依賴宣告與啟動腳本 | `package.json` |
+| 環境變數設定 (DB、JWT、PORT) | `.env` |
+| Express 入口、middleware 註冊順序、路由掛載 | `src/index.js` |
+| 資料庫連線池設定 (pg Pool, max/idle) | `src/config/db.js` |
+| JWT 簽署 (HS256)、驗證、userId 提取 | `src/utils/jwt.js` |
+| 自訂錯誤類別 (statusCode + message) | `src/utils/AppError.js` |
+| JWT 認證中介層 (Bearer token 攔截、IDOR 防禦) | `src/middleware/auth.js` |
+| Admin 授權中介層 (ROLE_ADMIN 檢查 → 403) | `src/middleware/admin.js` |
+| 全域錯誤處理中介層 (Express 4 參數簽章) | `src/middleware/errorHandler.js` |
+| 轉帳輸入驗證 (amount NUMERIC(18,4) 正則) | `src/validators/transferValidator.js` |
+| 註冊 (transaction + BCrypt + unique violation 23505) 與登入 (ROLE_DISABLED 檢查) | `src/services/authService.js` |
+| 轉帳與樂觀鎖 (version + rowCount + ROLLBACK) | `src/services/transactionService.js` |
+| Admin 用戶管理、交易 JOIN 查詢、動態 SQL 分頁、統計 (GROUP BY) | `src/services/adminService.js` |
+| Admin 路由 (6 個端點、router.use(auth, admin)) | `src/routes/admin.js` |
 
 ---
 

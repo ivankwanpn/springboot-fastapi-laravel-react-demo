@@ -18,6 +18,23 @@
 | python-dotenv | >=1.0.0 | .env 檔案載入 |
 | Docker | — | 多階段構建，容器化部署 |
 
+### 與其他版本的技術對照
+
+| 功能 | Spring Boot | Spring MVC | Node.js | FastAPI | Laravel | 純 PHP | Next.js |
+|------|------------|-----------|---------|---------|---------|--------|---------|
+| 語言 | Java | Java | JavaScript | Python | PHP | PHP | TypeScript |
+| Web框架 | Spring Boot 3.5 | Spring MVC 6 | Express 5 | FastAPI | Laravel 11 | 無框架 | Next.js 16 |
+| ORM/DB | MyBatis | MyBatis | pg (raw SQL) | SQLAlchemy 2.0 async | Eloquent | PDO (raw SQL) | Prisma 7 |
+| 配置方式 | application.yaml + @Value | XML + @Value | dotenv + .env | pydantic-settings + .env | .env + config/app.php | .env + parse_ini_file | .env + next.config |
+| JWT套件 | jjwt | jjwt | jsonwebtoken | PyJWT | firebase/php-jwt | firebase/php-jwt | jose |
+| DI方式 | @Autowired | @Autowired | 手動 require (無 DI) | Depends() | Service Container | 無 DI | 無 DI (React hooks) |
+| 事務管理 | @Transactional | @Transactional | pool.connect() + BEGIN/COMMIT/ROLLBACK | async with session.begin() | DB::transaction() | PDO::beginTransaction() | Prisma $transaction |
+| 樂觀鎖實作 | UPDATE ... WHERE version = #{version} | UPDATE ... WHERE version = #{version} | UPDATE ... WHERE version = $3 + rowCount | update().where(version=).rowcount | updateOrFail() + version | UPDATE ... WHERE version = :version + rowCount() | Prisma update with version |
+| 分頁方式 | RowBounds | RowBounds | LIMIT/OFFSET 手動SQL | limit()/offset() | paginate() | LIMIT/OFFSET 手動SQL | Prisma skip/take |
+| 密碼雜湊 | BCryptPasswordEncoder | BCryptPasswordEncoder | bcrypt (rounds=12) | passlib[bcrypt] | Hash::make() (bcrypt) | password_hash() (bcrypt) | bcryptjs |
+| 伺服器 | Embedded Tomcat | External Tomcat 10.1 | Node.js HTTP (Express) | Uvicorn (ASGI) | php artisan serve | PHP built-in server | Vite dev / Node.js |
+| Admin授權機制 | @PreAuthorize("hasRole('ADMIN')") | @PreAuthorize("hasRole('ADMIN')") | middleware admin.js (check req.userRole) | Depends(require_admin) | middleware + Gate | 手動 check $decoded['role'] | middleware + role check |
+
 ## 專案結構
 
 ```
@@ -132,6 +149,28 @@ digital_wallet_fastapi/
 - `create_access_token()` 將 `role` 寫入 JWT payload
 - `require_admin` dependency 從 JWT 提取 role，非 `ROLE_ADMIN` 返回 403
 - `ROLE_DISABLED` 用戶登入時 `login()` 返回 401 "Invalid username or password"
+
+---
+
+## 如何快速找到要抄的部分
+
+| 你想學/抄什麼 | 直接看這個檔案 |
+|-------------|-------------|
+| Python 依賴清單 (10 個套件) | `requirements.txt` |
+| FastAPI 入口、include_router、3 層 @exception_handler | `app/main.py` |
+| 型別安全環境變數 (pydantic-settings) | `app/config.py` |
+| SQLAlchemy async engine、async_sessionmaker、get_db generator | `app/database.py` |
+| BCrypt 密碼雜湊 + JWT HS256 簽署驗證 | `app/core/security.py` |
+| JWT 攔截 Depends (get_current_user_id) + Admin 授權 (require_admin) | `app/core/deps.py` |
+| 註冊/登入端點 (session.begin 事務邊界) | `app/api/auth.py` |
+| 轉帳/交易歷史端點 (Depends 注入 userId) | `app/api/transactions.py` |
+| Admin 6 個管理端點 (分頁、統計、disable/enable) | `app/api/admin.py` |
+| 註冊 (flush + IntegrityError)、登入 (ROLE_DISABLED 檢查) | `app/services/auth_service.py` |
+| 轉帳樂觀鎖 (bulk update + rowcount check + ROLLBACK) | `app/services/transaction_service.py` |
+| Admin 分頁查詢 (aliased JOIN 4 表) 與統計 (raw SQL GROUP BY) | `app/services/admin_service.py` |
+| User ORM 模型 (Mapped[T] + mapped_column 2.0 語法) | `app/models/user.py` |
+| 自訂異常類別階層 (AppException + 5 子類) | `app/exceptions/handlers.py` |
+| Docker 多階段構建 (build → slim) | `Dockerfile` |
 
 ---
 

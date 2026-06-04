@@ -21,6 +21,25 @@
 
 ---
 
+### 與其他版本的技術對照
+
+| 功能 | Spring Boot | Spring MVC | Node.js | FastAPI | Laravel | 純 PHP | Next.js |
+|------|------------|------------|---------|---------|---------|--------|---------|
+| 語言 | Java 17+ | Java 17+ | JavaScript (Node.js 18+) | Python 3.10+ | PHP 8.2+ | PHP 8.3+ | TypeScript (Node.js 18+) |
+| Web 框架 | Spring Boot 3.5 | Spring MVC 6 (XML) | Express 4.x | FastAPI 0.x | Laravel 11 | 無 (純 PHP) | Next.js 16 |
+| ORM / DB 層 | MyBatis | MyBatis | pg (raw SQL) | SQLAlchemy (async) | Eloquent | PDO (raw SQL) | Prisma 7 |
+| 配置方式 | application.properties / YAML | XML (web.xml + applicationContext.xml) | .env + 手動載入 | .env + Pydantic Settings | .env + config/*.php | getenv() | .env / next.config.ts |
+| JWT 套件 | jjwt | jjwt | jsonwebtoken | PyJWT | firebase/php-jwt | firebase/php-jwt | jose |
+| DI 方式 | Spring DI (@Autowired) | Spring DI (XML beans) | 無 (手動建立) | FastAPI Depends() | Laravel Service Container (自動注入) | 無 (手動 new) | 無 (手動建立) |
+| 事務管理 | @Transactional | @Transactional | BEGIN/COMMIT/ROLLBACK | async with session.begin() | DB::transaction() | beginTransaction()/commit()/rollBack() | Prisma $transaction() |
+| 樂觀鎖實作 | version column + WHERE version = ? | version column + WHERE version = ? | version column + rowCount check | version column + rowcount check | version column + DB::update() WHERE version | version column + rowCount() === 0 | version column + where version |
+| 分頁方式 | LIMIT/OFFSET + RowBounds | LIMIT/OFFSET + RowBounds | SQL LIMIT/OFFSET | SQLAlchemy offset()/limit() | skip()/take() | SQL LIMIT/OFFSET | Prisma skip/take |
+| 密碼雜湊 | BCryptPasswordEncoder | BCryptPasswordEncoder | bcrypt | passlib (bcrypt) | Hash::make() (BCrypt) | password_hash(PASSWORD_BCRYPT) | bcrypt |
+| 伺服器 | 內嵌 Tomcat | 外部 Tomcat 10.1 (WAR) | 內建 http | Uvicorn | php artisan serve / PHP-FPM | php -S (內建) | Next.js built-in server |
+| Admin 授權機制 | @PreAuthorize + SecurityFilter | @PreAuthorize + SecurityFilter | middleware role check | Depends() + role check | AdminMiddleware (role check) | AdminMiddleware (role check) | middleware role check |
+
+---
+
 ## 專案結構
 
 ```
@@ -105,6 +124,29 @@ digital_wallet_laravel/
 ```json
 {"status":"ERROR","message":"錯誤描述訊息"}
 ```
+
+---
+
+## 如何快速找到要抄的部分
+
+| 你想學/抄什麼 | 直接看這個檔案 |
+|-------------|-------------|
+| 依賴管理與套件宣告 | `composer.json` |
+| 環境變數設定 | `.env.example` |
+| 應用程式啟動與 middleware alias 註冊 | `bootstrap/app.php` |
+| API 路由定義 (11 個端點) | `routes/api.php` |
+| JWT 簽發與解碼工具 | `app/Helpers/JwtHelper.php` |
+| JWT 驗證中介層 (Bearer token 解析) | `app/Http/Middleware/JwtMiddleware.php` |
+| Admin 角色檢查中介層 | `app/Http/Middleware/AdminMiddleware.php` |
+| 註冊與登入業務邏輯 | `app/Services/AuthService.php` |
+| 轉帳核心邏輯 (含樂觀鎖) | `app/Services/TransactionService.php` |
+| 後台管理 (分頁、搜尋、統計) | `app/Services/AdminService.php` |
+| Controller 層 (HTTP 編排) | `app/Http/Controllers/AuthController.php` |
+| Admin Controller 層 | `app/Http/Controllers/AdminController.php` |
+| 請求驗證 (FormRequest) | `app/Http/Requests/RegisterRequest.php` |
+| Eloquent Model (User + hasOne Wallet) | `app/Models/User.php` |
+| Eloquent Model (Transaction + 兩個 belongsTo) | `app/Models/Transaction.php` |
+| 資料庫遷移 (DDL) | `database/migrations/` |
 
 ---
 

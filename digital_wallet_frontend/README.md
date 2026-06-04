@@ -82,25 +82,22 @@ digital_wallet_frontend/
 
 | 你想學/抄什麼 | 直接看這個檔案 |
 |-------------|-------------|
-| 專案初始化 (vite + tailwind 4 + ts) | [vite.config.ts](vite.config.ts) + [package.json](package.json) |
-| Tailwind 4 暗色主題設定 | [index.css](src/index.css) |
-| 全部型別定義 (對應後端 DTO) | [types/index.ts](src/types/index.ts) |
-| React 入口 (createRoot) | [main.tsx](src/main.tsx) |
-| React Router 嵌套路由 + Layout | [App.tsx](src/App.tsx) |
-| JWT localStorage 持久化 + AuthContext | [contexts/AuthContext.tsx](src/contexts/AuthContext.tsx) |
-| Axios 攔截器 (Token + 401) | [services/api.ts](src/services/api.ts) |
-| 通用表單 Hook (useForm) | [hooks/useForm.ts](src/hooks/useForm.ts) |
-| 登錄/註冊頁面完整實作 | [pages/LoginPage.tsx](src/pages/LoginPage.tsx) + [pages/RegisterPage.tsx](src/pages/RegisterPage.tsx) |
-| 交易方向判斷 (Sent/Received) | [pages/DashboardPage.tsx:28-30](src/pages/DashboardPage.tsx) + [pages/TransactionHistoryPage.tsx:50-63](src/pages/TransactionHistoryPage.tsx) |
-| Modal 二次確認模式 | [pages/TransferPage.tsx](src/pages/TransferPage.tsx) + [components/ui/Modal.tsx](src/components/ui/Modal.tsx) |
-| Button/Input/Card 元件 | [components/ui/](src/components/ui/) |
-| Sidebar 導航 + 登出 + 條件式管理員選單 | [components/layout/Sidebar.tsx](src/components/layout/Sidebar.tsx) |
-| 路由守衛 | [components/ui/ProtectedRoute.tsx](src/components/ui/ProtectedRoute.tsx) |
-| 管理員用戶管理 (搜尋/分頁/Modal/啟用停用) | [pages/admin/UserManagementPage.tsx](src/pages/admin/UserManagementPage.tsx) |
-| 管理員交易監控 (過濾/統計/長條圖/分頁) | [pages/admin/TransactionMonitoringPage.tsx](src/pages/admin/TransactionMonitoringPage.tsx) |
-| 純 SVG 長條圖 | [components/charts/BarChart.tsx](src/components/charts/BarChart.tsx) |
-| 管理員 API 呼叫 | [services/adminService.ts](src/services/adminService.ts) |
-| Vite proxy (前後端分離) | [vite.config.ts](vite.config.ts) |
+| 專案初始化 (Vite + Tailwind 4 + TypeScript) | [vite.config.ts](vite.config.ts) + [package.json](package.json) |
+| Tailwind 4 暗色主題設定 | [src/index.css](src/index.css) |
+| 全部型別定義 (對應後端 DTO) | [src/types/index.ts](src/types/index.ts) |
+| React Router 嵌套路由 + Layout + AuthEventListener | [src/App.tsx](src/App.tsx) |
+| JWT localStorage 持久化 + AuthContext | [src/contexts/AuthContext.tsx](src/contexts/AuthContext.tsx) |
+| Axios 攔截器 (Token 自動附加 + 401 CustomEvent) | [src/services/api.ts](src/services/api.ts) |
+| 管理員 API 呼叫 (分頁/過濾/統計) | [src/services/adminService.ts](src/services/adminService.ts) |
+| 登錄頁面完整實作 (useForm + validate + AuthContext) | [src/pages/LoginPage.tsx](src/pages/LoginPage.tsx) |
+| 轉帳頁面 (表單驗證 + Modal 二次確認 + 餘額即時檢查) | [src/pages/TransferPage.tsx](src/pages/TransferPage.tsx) |
+| 管理員用戶管理 (搜尋/分頁/Modal/啟用停用) | [src/pages/admin/UserManagementPage.tsx](src/pages/admin/UserManagementPage.tsx) |
+| 管理員交易監控 (過濾/統計卡/長條圖/分頁) | [src/pages/admin/TransactionMonitoringPage.tsx](src/pages/admin/TransactionMonitoringPage.tsx) |
+| Modal 元件 (overlay click + ESC + 可選 onConfirm) | [src/components/ui/Modal.tsx](src/components/ui/Modal.tsx) |
+| Sidebar 導航 + 登出 + 條件式管理員選單 | [src/components/layout/Sidebar.tsx](src/components/layout/Sidebar.tsx) |
+| 路由守衛 (ProtectedRoute) | [src/components/ui/ProtectedRoute.tsx](src/components/ui/ProtectedRoute.tsx) |
+| 純 SVG 長條圖 (零 npm 依賴) | [src/components/charts/BarChart.tsx](src/components/charts/BarChart.tsx) |
+
 
 ---
 

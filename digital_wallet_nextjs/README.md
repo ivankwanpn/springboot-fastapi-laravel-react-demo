@@ -22,6 +22,25 @@
 
 ---
 
+### 與其他版本的技術對照
+
+| 功能 | Spring Boot | Spring MVC | Node.js | FastAPI | Laravel | 純 PHP | Next.js |
+|------|------------|-------------------|---------|---------|---------|--------|---------|
+| 語言 | Java 21 | Java 21 | JavaScript | Python 3.12 | PHP 8.3 | PHP 8.3 | TypeScript 5 |
+| 框架 | Spring Boot 3.5 | Spring MVC 6 | Express | FastAPI | Laravel 11 | 無框架 | Next.js 16 |
+| ORM／資料庫 | MyBatis | MyBatis | pg (raw SQL) | SQLAlchemy | Eloquent | PDO (raw SQL) | Prisma 7 |
+| JWT 套件 | jjwt | jjwt | jsonwebtoken | PyJWT | firebase/php-jwt | firebase/php-jwt | jose |
+| 密碼雜湊 | BCrypt (Spring Security) | BCrypt (Spring Security) | bcrypt | passlib[bcrypt] | Laravel Hash | password_hash() | bcrypt |
+| 樂觀鎖實作 | version + @Version 攔截器 | version + @Version 攔截器 | version + FOR UPDATE | version + with_for_update() | version + lockForUpdate() | version + FOR UPDATE | updateMany + version WHERE |
+| Middleware 機制 | OncePerRequestFilter | HandlerInterceptor | app.use() middleware | Depends 注入 | HTTP Middleware | 手寫 before() | middleware.ts (Edge) |
+| 請求驗證 | DTO + @Valid (Jakarta) | DTO + @Valid (Jakarta) | 手寫 if/else | Pydantic model | Form Request | 手寫 if/else | Zod 4 |
+| 前端 | 無（純 API） | 無（純 API） | 無（純 API） | 無（純 API） | 無（純 API） | 無（純 API） | React 19 全端 |
+| 設定檔 | application.properties | XML + properties | .env | .env | .env | .env | .env + prisma.config.ts |
+| 測試框架 | JUnit 5 | JUnit 5 | 無 | pytest | PHPUnit | 無 | Vitest |
+| 部署方式 | JAR (embedded Tomcat) | WAR (external Tomcat 10) | node src/index.js | uvicorn | php artisan serve | php -S | next build && next start |
+
+---
+
 ## 專案結構
 
 ```
@@ -142,6 +161,28 @@ digital_wallet_nextjs/
 ```json
 {"status":"ERROR","message":"錯誤描述訊息"}
 ```
+
+---
+
+## 如何快速找到要抄的部分
+
+| 你想學/抄什麼 | 直接看這個檔案 |
+|-------------|-------------|
+| Prisma Schema（資料表定義 + 關聯映射） | [prisma/schema.prisma](prisma/schema.prisma) |
+| Prisma 7 設定（schema 路徑 + DATABASE_URL） | [prisma.config.ts](prisma.config.ts) |
+| 環境變數（DB 連線 + JWT 密鑰） | [.env](.env) |
+| Middleware（cookie + Bearer token 雙通道驗證） | [src/middleware.ts](src/middleware.ts) |
+| Prisma Client 實例（PrismaPg adapter + dev cache） | [src/lib/db.ts](src/lib/db.ts) |
+| JWT 工具（jose SignJWT + jwtVerify + bcrypt） | [src/lib/auth.ts](src/lib/auth.ts) |
+| 註冊 API（atomic user + wallet 建立） | [src/app/api/auth/register/route.ts](src/app/api/auth/register/route.ts) |
+| 登入 API（BCrypt 驗證 + ROLE_DISABLED 檢查） | [src/app/api/auth/login/route.ts](src/app/api/auth/login/route.ts) |
+| 轉帳 API（樂觀鎖 updateMany + $transaction） | [src/app/api/transactions/transfer/route.ts](src/app/api/transactions/transfer/route.ts) |
+| 管理員使用者列表 API（分頁 + 搜尋 + role 雙重檢查） | [src/app/api/admin/users/route.ts](src/app/api/admin/users/route.ts) |
+| 管理員交易統計 API（aggregate + groupBy） | [src/app/api/admin/transactions/stats/route.ts](src/app/api/admin/transactions/stats/route.ts) |
+| 全端 Dashboard（Server Component 直接 Prisma 查詢） | [src/app/(dashboard)/dashboard/page.tsx](src/app/(dashboard)/dashboard/page.tsx) |
+| 轉帳頁面（Client Component 表單 + Modal 確認） | [src/app/(dashboard)/dashboard/transfer/page.tsx](src/app/(dashboard)/dashboard/transfer/page.tsx) |
+| 管理員使用者管理頁（Server + Client 混合渲染） | [src/app/(admin)/admin/users/page.tsx](src/app/(admin)/admin/users/page.tsx) |
+| Modal 元件（overlay click + ESC + body scroll lock） | [src/components/ui/Modal.tsx](src/components/ui/Modal.tsx) |
 
 ---
 

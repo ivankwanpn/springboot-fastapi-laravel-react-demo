@@ -16,6 +16,25 @@
 
 ---
 
+### 與其他版本的技術對照
+
+| 功能 | Spring Boot | Spring MVC | Node.js | FastAPI | Laravel | 純 PHP | Next.js |
+|------|------------|------------|---------|---------|---------|--------|---------|
+| 語言 | Java 17+ | Java 17+ | JavaScript (Node.js 18+) | Python 3.10+ | PHP 8.2+ | PHP 8.3+ | TypeScript (Node.js 18+) |
+| Web 框架 | Spring Boot 3.5 | Spring MVC 6 (XML) | Express 4.x | FastAPI 0.x | Laravel 11 | 無 (純 PHP) | Next.js 16 |
+| ORM / DB 層 | MyBatis | MyBatis | pg (raw SQL) | SQLAlchemy (async) | Eloquent | PDO (raw SQL) | Prisma 7 |
+| 配置方式 | application.properties / YAML | XML (web.xml + applicationContext.xml) | .env + 手動載入 | .env + Pydantic Settings | .env + config/*.php | getenv() | .env / next.config.ts |
+| JWT 套件 | jjwt | jjwt | jsonwebtoken | PyJWT | firebase/php-jwt | firebase/php-jwt | jose |
+| DI 方式 | Spring DI (@Autowired) | Spring DI (XML beans) | 無 (手動建立) | FastAPI Depends() | Laravel Service Container (自動注入) | 無 (手動 new) | 無 (手動建立) |
+| 事務管理 | @Transactional | @Transactional | BEGIN/COMMIT/ROLLBACK | async with session.begin() | DB::transaction() | beginTransaction()/commit()/rollBack() | Prisma $transaction() |
+| 樂觀鎖實作 | version column + WHERE version = ? | version column + WHERE version = ? | version column + rowCount check | version column + rowcount check | version column + DB::update() WHERE version | version column + rowCount() === 0 | version column + where version |
+| 分頁方式 | LIMIT/OFFSET + RowBounds | LIMIT/OFFSET + RowBounds | SQL LIMIT/OFFSET | SQLAlchemy offset()/limit() | skip()/take() | SQL LIMIT/OFFSET | Prisma skip/take |
+| 密碼雜湊 | BCryptPasswordEncoder | BCryptPasswordEncoder | bcrypt | passlib (bcrypt) | Hash::make() (BCrypt) | password_hash(PASSWORD_BCRYPT) | bcrypt |
+| 伺服器 | 內嵌 Tomcat | 外部 Tomcat 10.1 (WAR) | 內建 http | Uvicorn | php artisan serve / PHP-FPM | php -S (內建) | Next.js built-in server |
+| Admin 授權機制 | @PreAuthorize + SecurityFilter | @PreAuthorize + SecurityFilter | middleware role check | Depends() + role check | AdminMiddleware (role check) | AdminMiddleware (role check) | middleware role check |
+
+---
+
 ## 專案結構
 
 ```
@@ -90,11 +109,11 @@ digital_wallet_php/
 
 | 方法 | 路徑 | JWT | Query 參數 | 響應 | HTTP |
 |------|------|-----|-----------|------|------|
-| GET | `/api/admin/users` | 是 | `?search=&page=1&size=10` | `{"data":[{id,username,role,createdAt},...],"page":0,"size":10,"total":N}` | 200 |
+| GET | `/api/admin/users` | 是 | `?search=&page=1&size=10` | `{"data":[{id,username,role,createdAt},...],"page":1,"size":10,"total":N}` | 200 |
 | GET | `/api/admin/users/{id}` | 是 | — | `{"id":...,"username":"...","role":"...","wallet":{...},"recentTransactions":[...]}` | 200 |
 | PUT | `/api/admin/users/{id}/disable` | 是 | — | `{"status":"SUCCESS","message":"User disabled successfully"}` | 200 |
 | PUT | `/api/admin/users/{id}/enable` | 是 | — | `{"status":"SUCCESS","message":"User enabled successfully"}` | 200 |
-| GET | `/api/admin/transactions` | 是 | `?username=&fromDate=&toDate=&page=1&size=10` | `{"data":[{...,fromUsername,toUsername},...],"page":0,"size":10,"total":N}` | 200 |
+| GET | `/api/admin/transactions` | 是 | `?username=&fromDate=&toDate=&page=1&size=10` | `{"data":[{...,fromUsername,toUsername},...],"page":1,"size":10,"total":N}` | 200 |
 | GET | `/api/admin/transactions/stats` | 是 | `?fromDate=&toDate=` | `{"totalTransactions":N,"totalAmount":"...","dailyVolume":[{date,count,amount},...]}` | 200 |
 
 ### 錯誤響應格式
@@ -116,6 +135,28 @@ digital_wallet_php/
 | 409 | `ConcurrentModificationException` | 樂觀鎖版本衝突（提示用戶重試） |
 | 409 | `DuplicateUsernameException` | 用戶名重複（PostgreSQL unique constraint 23505） |
 | 500 | `\Exception` (fallback) | 未預期錯誤（訊息記錄到 `error_log`，客戶端只看到 "Internal server error"） |
+
+---
+
+## 如何快速找到要抄的部分
+
+| 你想學/抄什麼 | 直接看這個檔案 |
+|-------------|-------------|
+| 依賴管理與 PSR-4 autoload | `composer.json` |
+| 前端控制器 (路由 + dispatch + 錯誤處理) | `public/index.php` |
+| 資料庫連線 (PDO singleton) | `src/Config/Database.php` |
+| JWT 設定 (secret + expiration) | `src/Config/Jwt.php` |
+| JWT 簽發與解碼工具 | `src/Util/JwtHelper.php` |
+| JWT 驗證中介層 (Bearer token 解析) | `src/Middleware/JwtMiddleware.php` |
+| Admin 角色檢查中介層 | `src/Middleware/AdminMiddleware.php` |
+| 註冊與登入業務邏輯 | `src/Service/AuthService.php` |
+| 轉帳核心邏輯 (含樂觀鎖) | `src/Service/TransactionService.php` |
+| 後台管理 (分頁、搜尋、統計) | `src/Service/AdminService.php` |
+| 基礎例外類 (自帶 HTTP statusCode) | `src/Exception/AppException.php` |
+| HTTP 請求解析 (body + headers + attributes bag) | `src/Util/Request.php` |
+| JSON 響應工具 | `src/Util/JsonResponse.php` |
+| 時間戳格式化 (PostgreSQL → ISO 8601) | `src/Util/Timestamp.php` |
+| 資料庫 DDL (三張表 + 索引) | `schema.sql` |
 
 ---
 

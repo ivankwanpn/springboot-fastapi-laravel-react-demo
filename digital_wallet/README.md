@@ -21,6 +21,27 @@
 
 ---
 
+## 技術清單比較
+
+### 與其他版本的技術對照
+
+| 功能 | Spring Boot | Spring MVC | Node.js | FastAPI | Laravel | 純 PHP | Next.js |
+|------|------------|-------------------|---------|---------|---------|--------|---------|
+| 語言 | Java 21 | Java 21 | JavaScript | Python 3.12+ | PHP 8.3+ | PHP 8.3+ | TypeScript |
+| Web框架 | Spring Boot 3.5 | Spring MVC 6.2 | Express 5 | FastAPI 0.115+ | Laravel 11 | 無框架 | Next.js 16 App Router |
+| ORM/DB | MyBatis XML | MyBatis XML | pg raw SQL | SQLAlchemy async | Eloquent | 原生 PDO | Prisma 7 |
+| 配置方式 | application.yaml | web.xml + XML | dotenv + code | Pydantic Settings | .env | 無 | .env + prisma.config.ts |
+| JWT套件 | jjwt 0.11.5 | jjwt 0.11.5 | jsonwebtoken | PyJWT 2.x | firebase/php-jwt | firebase/php-jwt | jose 5.x |
+| DI方式 | Spring DI (@Autowired) | XML \<bean\> | 無 | Depends() | Laravel Container | 無 | 無 (React Context) |
+| 事務管理 | @Transactional | \<tx:annotation-driven\> | pool.connect() + BEGIN/COMMIT | async with session.begin() | DB::transaction() | 手動 PDO begin/commit/rollback | prisma.$transaction() |
+| 樂觀鎖實作 | MyBatis rowcount | MyBatis rowcount | pg rowCount | SQLAlchemy rowcount | Eloquent update() rowCount | PDO rowCount() | updateMany count |
+| 分頁方式 | PageRequest | offset/limit | LIMIT/OFFSET | offset()/limit() | skip()/take() | LIMIT/OFFSET | skip()/take() |
+| 密碼雜湊 | BCrypt (Spring Security) | BCrypt (Spring Security) | bcrypt npm | passlib[bcrypt] | Hash::make() (bcrypt) | password_hash() (PHP內建) | bcrypt npm |
+| 伺服器 | 內嵌 Tomcat | 外部 Tomcat | 內建 http | Uvicorn | PHP-FPM | php -S | 內建 (Turbopack) |
+| Admin授權機制 | SecurityFilterChain .hasAuthority | \<intercept-url access\> | auth + admin middleware chain | require_admin Depends | admin.role middleware | AdminMiddleware::handle() | middleware.ts role check |
+
+---
+
 ## 專案結構
 
 ```
@@ -132,6 +153,29 @@ digital_wallet/
 > **Admin 用戶創建方式：** 手動在資料庫中設定 `UPDATE users SET role = 'ROLE_ADMIN' WHERE id = 1;`（Admin 不可透過公開註冊取得）。
 >
 > **禁用用戶處理：** `ROLE_DISABLED` 角色用戶登入時返回與密碼錯誤相同的 401 訊息，不洩漏帳號狀態。
+
+---
+
+## 如何快速找到要抄的部分
+
+| 你想學/抄什麼 | 直接看這個檔案 |
+|-------------|-------------|
+| Maven 依賴與插件配置 | `pom.xml` |
+| 資料庫連線、MyBatis、JWT 設定 | `src/main/resources/application.yaml` |
+| Spring Security 無狀態 JWT + RBAC 配置 | `src/main/java/com/digital_wallet/config/SecurityConfig.java` |
+| JWT Token 生成與驗證工具 | `src/main/java/com/digital_wallet/util/JwtUtil.java` |
+| Bearer Token 攔截器（OncePerRequestFilter） | `src/main/java/com/digital_wallet/config/JwtAuthenticationFilter.java` |
+| 認證端點（註冊 + 登入 + 禁用檢查） | `src/main/java/com/digital_wallet/controller/AuthController.java` |
+| 管理後台 6 個端點 | `src/main/java/com/digital_wallet/controller/AdminController.java` |
+| BCrypt 密碼雜湊 + 重複用戶名檢測 | `src/main/java/com/digital_wallet/service/impl/AuthServiceImpl.java` |
+| @Transactional + 樂觀鎖轉帳核心 | `src/main/java/com/digital_wallet/service/impl/TransactionServiceImpl.java` |
+| 管理端分頁查詢 + 交易統計 | `src/main/java/com/digital_wallet/service/impl/AdminServiceImpl.java` |
+| 樂觀鎖扣款 SQL（deductBalanceWithVersion） | `src/main/resources/mapper/WalletMapper.xml` |
+| 管理端 JOIN 查詢（含用戶名） | `src/main/resources/mapper/TransactionMapper.xml` |
+| 全域異常處理（8 種異常 → HTTP 狀態碼） | `src/main/java/com/digital_wallet/controller/GlobalExceptionHandler.java` |
+| Entity 與 DTO 分層（14 個 DTO） | `src/main/java/com/digital_wallet/model/` |
+| Swagger UI 配置 | `src/main/java/com/digital_wallet/config/OpenApiConfig.java` |
+| Docker 容器化部署 | `Dockerfile` + `docker-compose.yml` |
 
 ---
 
