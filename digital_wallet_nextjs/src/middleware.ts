@@ -33,6 +33,14 @@ export async function middleware(request: NextRequest) {
     try {
       const { payload } = await jwtVerify(token, secret, { algorithms: ['HS256'] })
 
+      // Block disabled users
+      if (payload.role === 'ROLE_DISABLED') {
+        return NextResponse.json(
+          { status: 'ERROR', message: 'Invalid username or password' },
+          { status: 401 }
+        )
+      }
+
       // Admin routes need ROLE_ADMIN
       if (pathname.startsWith('/api/admin/')) {
         if (payload.role !== 'ROLE_ADMIN') {
@@ -60,6 +68,11 @@ export async function middleware(request: NextRequest) {
 
   try {
     const { payload } = await jwtVerify(token, secret, { algorithms: ['HS256'] })
+
+    // Block disabled users
+    if (payload.role === 'ROLE_DISABLED') {
+      return NextResponse.redirect(new URL('/login', request.url))
+    }
 
     // Admin pages
     if (pathname.startsWith('/admin')) {
