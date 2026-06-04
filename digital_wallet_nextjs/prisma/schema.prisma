@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           BigInt   @id @default(autoincrement())
+  username     String   @unique @db.VarChar(50)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  role         String   @default("ROLE_USER") @db.VarChar(20)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(0)
+  wallet       Wallet?
+
+  @@map("users")
+}
+
+model Wallet {
+  id             BigInt        @id @default(autoincrement())
+  userId         BigInt        @unique @map("user_id")
+  currency       String        @default("USDT") @db.VarChar(10)
+  balance        Decimal       @default(0) @db.Decimal(18, 4)
+  version        Int           @default(0)
+  updatedAt      DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamp(0)
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade, map: "wallets_user_id_foreign")
+  sentTx         Transaction[] @relation("FromWallet")
+  receivedTx     Transaction[] @relation("ToWallet")
+
+  @@map("wallets")
+}
+
+model Transaction {
+  id           BigInt   @id @default(autoincrement())
+  fromWalletId BigInt?  @map("from_wallet_id")
+  toWalletId   BigInt?  @map("to_wallet_id")
+  amount       Decimal  @db.Decimal(18, 4)
+  txType       String   @map("tx_type") @db.VarChar(20)
+  status       String   @default("SUCCESS") @db.VarChar(20)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(0)
+  fromWallet   Wallet?  @relation("FromWallet", fields: [fromWalletId], references: [id], map: "transactions_from_wallet_id_foreign")
+  toWallet     Wallet?  @relation("ToWallet", fields: [toWalletId], references: [id], map: "transactions_to_wallet_id_foreign")
+
+  @@index([fromWalletId])
+  @@index([toWalletId])
+  @@map("transactions")
+}

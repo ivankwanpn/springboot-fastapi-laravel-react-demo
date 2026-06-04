@@ -1,6 +1,6 @@
 # 數位錢包全棧 Demo
 
-> 同一個 API 規格，六種技術棧實現後端 + 一個 React 前端。**每個子專案都有獨立的 README**，這裡只做導航。
+> 同一個 API 規格，七種技術棧實現（六種後端 + 一個全端 + 一個 React 前端）。**每個子專案都有獨立的 README**，這裡只做導航。
 
 ## 專案地圖
 
@@ -12,6 +12,7 @@ handonprogramming/
 ├── digital_wallet_fastapi/       ← Python + FastAPI + SQLAlchemy
 ├── digital_wallet_laravel/       ← PHP + Laravel 11 + Eloquent
 ├── digital_wallet_php/           ← PHP 純手寫（無框架，只依賴一個 JWT 庫）
+├── digital_wallet_nextjs/        ← Next.js 16 全端（Prisma + Server Components）
 └── digital_wallet_frontend/      ← React + TypeScript + Tailwind
 ```
 
@@ -25,6 +26,7 @@ handonprogramming/
 | 用 Python 寫非同步後端 | [digital_wallet_fastapi](digital_wallet_fastapi/) | async/await，自動 Swagger 文檔，Pydantic 驗證 |
 | 用 PHP 框架開發 | [digital_wallet_laravel](digital_wallet_laravel/) | Eloquent ORM，優雅語法，豐富生態 |
 | 理解框架底層原理 | [digital_wallet_php](digital_wallet_php/) | 零框架，只依賴一個 JWT 庫，暴露所有底層細節 |
+| 學 Next.js 全端開發 | [digital_wallet_nextjs](digital_wallet_nextjs/) | Prisma ORM + Server Components + Route Handlers，API 與前端同一個專案 |
 | 學 React 前端 | [digital_wallet_frontend](digital_wallet_frontend/) | TypeScript + Tailwind CSS，JWT 登入，錢包 UI |
 
 ## 各版本特點
@@ -47,12 +49,16 @@ Eloquent ORM 讓 `User::where('username', $name)->first()` 像寫英文，`DB::t
 ### 純 PHP — 回歸本質
 只依賴一個 Composer 套件（`firebase/php-jwt`），其他全部 PHP 內建函數。無 ORM、無 DI 容器、無路由器、無模板引擎。適合理解框架底層原理，也適合維護老舊 PHP 專案的參考。
 
+### Next.js — 全端合一
+Prisma 7 ORM 型別安全，Server Components 直接在伺服器端查 DB 渲染頁面，Route Handlers 提供與其他後端一致的 REST API。`middleware.ts` 同時處理頁面 cookie 驗證和 API Bearer token 驗證。適合對比 Node.js 版，理解 Next.js 全端與 Express 後端 + React 前端分離的架構差異。
+
 ### React 前端 — 統一客戶端
-六個後端接同一個前端，Axios 攔截器統一處理 JWT 和 401，Tailwind CSS 暗色主題，`TransferPage` 客戶端先驗證再 Modal 確認。
+七個後端接同一個前端，Axios 攔截器統一處理 JWT 和 401，Tailwind CSS 暗色主題，`TransferPage` 客戶端先驗證再 Modal 確認。
 
 ## 共通規格
 
 - **API 端點**：`POST /api/auth/register`、`POST /api/auth/login`、`GET /api/wallets`、`POST /api/transactions/transfer`、`GET /api/transactions`
+- **管理端點**：`GET /api/admin/users`、`GET /api/admin/users/{id}`、`PUT /api/admin/users/{id}/disable`、`PUT /api/admin/users/{id}/enable`、`GET /api/admin/transactions`、`GET /api/admin/transactions/stats`
 - **錯誤格式**：`{"status":"ERROR","message":"..."}`
 - **資料庫**：PostgreSQL `localhost:5433`，資料庫 `digital_wallet`
-- **核心業務**：註冊 / 登入 / 查錢包 / 樂觀鎖轉賬 / 交易歷史
+- **核心業務**：註冊 / 登入 / 查錢包 / 樂觀鎖轉賬 / 交易歷史 / 管理後台（用戶管理 + 交易監控）
