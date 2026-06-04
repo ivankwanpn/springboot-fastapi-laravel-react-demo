@@ -1853,6 +1853,30 @@ Next.js middleware 和 Route Handler 執行在不同的 runtime context。middle
 | `params` 作為 Promise `await` | 直接 `params.id`（Next.js 15+ breaking change） |
 | `globalThis` cache PrismaClient（dev） | 每次 hot reload 新建 PrismaClient |
 
+### Cookie vs localStorage 的安全性取捨
+
+本專案使用 `document.cookie` 存 JWT token（`path=/; max-age=86400`），**沒有**設定 `HttpOnly` 標誌。這是刻意為之的取捨：
+
+- **為什麼不用 `HttpOnly`**：Client Component 需要用 JS 讀取 token 附加到 `Authorization: Bearer <token>` header 來呼叫 API。`HttpOnly` cookie 無法被 JS 讀取，會讓 Client Component 無法打 API。
+- **為什麼不用 `Secure`**：本專案是本地開發（`localhost`），HTTPS 不可用。`Secure` flag 會讓 cookie 在 HTTP 下完全無法設定。
+- **為什麼不用 `SameSite=Strict`**：Strict 模式會阻止跨站請求攜帶 cookie，但本案沒有跨站場景。
+
+**生產環境的建議改造方案**：
+
+1. **BFF 模式（推薦）**：Next.js Server Component / Route Handler 直接讀取 `HttpOnly` cookie，Client Component 不再直接打 API，改為透過 Server Action 或 Route Handler 轉發。cookie 設定改為：
+   ```typescript
+   cookies().set('token', token, {
+     httpOnly: true,
+     secure: true,
+     sameSite: 'strict',
+     maxAge: 86400,
+   })
+   ```
+
+2. **雙 token 模式**：短時效 access token 放在記憶體（用於 API 請求），長時效 refresh token 放在 `HttpOnly` cookie（用於刷新 access token）。
+
+3. **Server-side proxy**：Next.js `middleware.ts` 在請求到達 Route Handler 前自動附加 `Authorization` header，前端完全不碰 token。
+
 ---
 
 ## 常見錯誤
@@ -1975,6 +1999,33 @@ const userId = BigInt(params.id);  // TypeScript error
 const { id } = await params;
 const userId = BigInt(id);
 ```
+
+### 7. 轉帳 IDOR 防護：userId 來源的正確選擇
+
+**錯誤寫法**：
+
+```typescript
+// BAD：從 request body 取得 userId——攻擊者可傳入任意 userId
+export async function POST(request: NextRequest) {
+  const { userId, toUsername, amount } = await request.json();
+  const fromWallet = await prisma.wallet.findUnique({ where: { userId } });
+  // 攻擊者可以傳入其他人的 userId，從別人錢包轉錢
+}
+```
+
+**正確寫法**：
+
+```typescript
+// GOOD：userId 從 JWT 中提取，不信任客戶端傳入的值
+export async function POST(request: NextRequest) {
+  const userId = await getUserId(request);  // JWT → sub claim，不可偽造
+  const { toUsername, amount } = await request.json();
+  const fromWallet = await prisma.wallet.findUnique({ where: { userId } });
+  // userId 來自 JWT，攻擊者無法冒充其他用戶
+}
+```
+
+**為什麼 `getUserId(request)` 是安全的**：`jose` 的 `jwtVerify()` 會驗證 JWT 的 HMAC-SHA256 簽名。攻擊者如果竄改 token 中的 `sub`（userId），簽名驗證就會失敗，`jwtVerify()` 拋出例外，請求被拒絕。因此從已驗證 JWT 中提取的 userId 是可信的。
 
 ---
 
