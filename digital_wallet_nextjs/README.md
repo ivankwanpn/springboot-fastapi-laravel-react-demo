@@ -1282,7 +1282,7 @@ export default function TransferPage() {
 
 ### 模式 9：Admin 頁面 — Server Component + Client Component 組合
 
-#### Server Component — Data Fetching (`src/app/(admin)/admin/users/page.tsx`)
+#### Server Component — Data Fetching (`src/app/(admin)/users/page.tsx`)
 
 ```typescript
 import { cookies } from 'next/headers';
